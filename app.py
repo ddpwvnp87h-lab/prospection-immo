@@ -410,6 +410,25 @@ def delete_listing(listing_id):
 
     return redirect(url_for('dashboard'))
 
+@app.route('/listings/delete-all', methods=['POST'])
+@login_required
+def delete_all_listings():
+    """Supprimer toutes les annonces de l'utilisateur"""
+    user_id = session.get('user_id')
+
+    if not is_db_connected():
+        flash('Base de données non configurée', 'error')
+        return redirect(url_for('dashboard'))
+
+    try:
+        # Supprimer toutes les annonces de l'utilisateur
+        db._api_request('DELETE', 'listings', params={'user_id': f'eq.{user_id}'})
+        flash('Toutes les annonces ont été supprimées', 'success')
+    except Exception as e:
+        flash(f'Erreur lors de la suppression: {e}', 'error')
+
+    return redirect(url_for('dashboard'))
+
 # ============================================================================
 # SCRAPING
 # ============================================================================

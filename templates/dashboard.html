@@ -6,7 +6,26 @@
 <div class="dashboard">
     <div class="dashboard-header">
         <h2>Mes Annonces</h2>
-        <a href="{{ url_for('scrape_page') }}" class="btn btn-primary">+ Nouveau scraping</a>
+        <div class="header-actions">
+            <a href="{{ url_for('scrape_page') }}" class="btn btn-primary">+ Nouveau scraping</a>
+            {% if stats.total > 0 %}
+            <button type="button" class="btn btn-danger" onclick="confirmDeleteAll()">🗑️ Tout supprimer</button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal de confirmation suppression totale -->
+    <div id="delete-all-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>⚠️ Supprimer toutes les annonces ?</h3>
+            <p>Cette action va supprimer <strong>{{ stats.total }} annonces</strong>. Cette action est irréversible.</p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline" onclick="closeModal()">Annuler</button>
+                <form method="POST" action="{{ url_for('delete_all_listings') }}" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">Confirmer la suppression</button>
+                </form>
+            </div>
+        </div>
     </div>
 
     <!-- Statistiques -->
@@ -125,6 +144,10 @@
                         </form>
 
                         <a href="{{ listing.url }}" target="_blank" class="btn btn-sm btn-outline">Voir l'annonce</a>
+
+                        <form method="POST" action="{{ url_for('delete_listing', listing_id=listing.id) }}" class="delete-form" onsubmit="return confirm('Supprimer cette annonce ?')">
+                            <button type="submit" class="btn btn-sm btn-danger-outline" title="Supprimer">🗑️</button>
+                        </form>
                     </div>
                 </div>
             </div>
@@ -139,4 +162,104 @@
         {% endif %}
     </div>
 </div>
+
+<style>
+/* Header actions */
+.header-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+
+.modal-content h3 {
+    margin-bottom: 1rem;
+    color: var(--danger);
+}
+
+.modal-content p {
+    margin-bottom: 1.5rem;
+    color: var(--gray-600);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+}
+
+/* Delete button on cards */
+.btn-danger-outline {
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-danger-outline:hover {
+    background: var(--danger);
+    color: white;
+}
+
+.delete-form {
+    display: inline;
+}
+
+.listing-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+</style>
+
+<script>
+function confirmDeleteAll() {
+    document.getElementById('delete-all-modal').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('delete-all-modal').style.display = 'none';
+}
+
+// Fermer le modal en cliquant en dehors
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('delete-all-modal');
+    if (e.target === modal) {
+        closeModal();
+    }
+});
+
+// Fermer avec Escape
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeModal();
+    }
+});
+</script>
 {% endblock %}
