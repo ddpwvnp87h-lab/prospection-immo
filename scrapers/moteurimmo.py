@@ -13,15 +13,15 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 
-class ParuvenduScraper(BaseScraper):
-    """Scraper pour paruvendu.fr - filtre particuliers"""
+class MoteurImmoScraper(BaseScraper):
+    """Scraper pour moteurimmo.fr - agrégateur avec filtre particuliers"""
 
     @property
     def site_name(self) -> str:
-        return "paruvendu.fr"
+        return "moteurimmo.fr"
 
     def scrape(self, ville: str, rayon: int, max_pages: int = 5) -> List[Dict[str, Any]]:
-        print(f"🔍 Scraping {self.site_name} pour {ville}")
+        print(f"🔍 Scraping {self.site_name} pour {ville} (rayon: {rayon}km)")
 
         listings = []
 
@@ -53,8 +53,8 @@ class ParuvenduScraper(BaseScraper):
                 page = context.new_page()
 
                 ville_slug = self._slugify(ville)
-                # pa=1 = particulier uniquement
-                url = f"https://www.paruvendu.fr/immobilier/vente/{ville_slug}/?pa=1"
+                # particulier=1 pour filtrer
+                url = f"https://www.moteurimmo.fr/recherche/achat/{ville_slug}?particulier=1"
 
                 print(f"  🔗 {url}")
                 page.goto(url, wait_until='networkidle', timeout=20000)
@@ -77,7 +77,7 @@ class ParuvenduScraper(BaseScraper):
                     # Page suivante
                     if page_num < max_pages:
                         try:
-                            next_btn = page.query_selector('a.next, a[rel="next"], .pagination a:last-child')
+                            next_btn = page.query_selector('a.next, a[rel="next"], .pagination-next, a:has-text("Suivant")')
                             if next_btn:
                                 next_btn.click()
                                 page.wait_for_load_state('networkidle', timeout=10000)
@@ -109,8 +109,7 @@ class ParuvenduScraper(BaseScraper):
 
         for page_num in range(1, max_pages + 1):
             try:
-                # pa=1 filtre les particuliers
-                url = f"https://www.paruvendu.fr/immobilier/vente/{ville_slug}/?pa=1&p={page_num}"
+                url = f"https://www.moteurimmo.fr/recherche/achat/{ville_slug}?page={page_num}&particulier=1"
                 print(f"  📄 Page {page_num}: {url[:60]}...")
 
                 response = session.get(url, timeout=15)
@@ -143,9 +142,9 @@ class ParuvenduScraper(BaseScraper):
     def _find_ads(self, soup) -> list:
         """Trouve les annonces"""
         selectors = [
-            ('div', {'class': re.compile(r'annonce|ergov3-annonce', re.I)}),
-            ('article', {'class': re.compile(r'annonce', re.I)}),
-            ('li', {'class': re.compile(r'annonce', re.I)}),
+            ('div', {'class': re.compile(r'annonce|listing|result-item', re.I)}),
+            ('article', {'class': re.compile(r'listing|annonce', re.I)}),
+            ('li', {'class': re.compile(r'annonce|listing', re.I)}),
         ]
 
         for tag, attrs in selectors:
@@ -154,8 +153,8 @@ class ParuvenduScraper(BaseScraper):
                 return ads
 
         # Fallback
-        links = soup.find_all('a', href=re.compile(r'/immobilier/vente/'))
-        return [l for l in links if 'annonce' in str(l.get('class', []))] or links[:20]
+        links = soup.find_all('a', href=re.compile(r'/annonce/'))
+        return links if links else []
 
     def _extract_listing(self, ad, ville: str) -> Dict[str, Any]:
         """Extrait une annonce"""
@@ -171,15 +170,18 @@ class ParuvenduScraper(BaseScraper):
                 return None
 
             if not lien.startswith('http'):
-                lien = f"https://www.paruvendu.fr{lien}"
+                lien = f"https://www.moteurimmo.fr{lien}"
 
             # Titre
             titre = None
-            titre_elem = ad.find(['h2', 'h3']) or ad.find(class_=re.compile(r'titre', re.I))
-            if titre_elem:
-                titre = titre_elem.get_text(strip=True)
+            for tag in ['h2', 'h3', 'h4']:
+                elem = ad.find(tag)
+                if elem:
+                    titre = elem.get_text(strip=True)
+                    break
+
             if not titre:
-                titre = ad.get_text(strip=True)[:80] or "Annonce ParuVendu"
+                titre = ad.get_text(strip=True)[:80] or "Annonce MoteurImmo"
 
             # Prix
             prix = 0
@@ -205,10 +207,10 @@ class ParuvenduScraper(BaseScraper):
             photos = []
             img = ad.find('img')
             if img:
-                src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
+                src = img.get('src') or img.get('data-src')
                 if src and not src.startswith('data:'):
                     if not src.startswith('http'):
-                        src = f"https://www.paruvendu.fr{src}"
+                        src = f"https://www.moteurimmo.fr{src}"
                     photos.append(src)
 
             return {

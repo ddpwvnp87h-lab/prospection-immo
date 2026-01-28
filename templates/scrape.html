@@ -62,25 +62,40 @@
                     <label class="site-checkbox">
                         <input type="checkbox" name="sites" value="pap" checked>
                         <span class="site-name">pap.fr</span>
-                        <span class="site-tag tag-easy">Rapide</span>
+                        <span class="site-tag tag-easy">Particuliers</span>
                     </label>
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="figaro" checked>
+                        <input type="checkbox" name="sites" value="entreparticuliers" checked>
+                        <span class="site-name">EntreParticuliers</span>
+                        <span class="site-tag tag-easy">100% Particuliers</span>
+                    </label>
+                    <label class="site-checkbox">
+                        <input type="checkbox" name="sites" value="paruvendu">
+                        <span class="site-name">ParuVendu</span>
+                        <span class="site-tag tag-easy">Particuliers</span>
+                    </label>
+                    <label class="site-checkbox">
+                        <input type="checkbox" name="sites" value="figaro">
                         <span class="site-name">Figaro Immo</span>
                         <span class="site-tag tag-easy">Rapide</span>
                     </label>
-                    <label class="site-checkbox site-disabled" title="Nécessite Playwright (non installé)">
-                        <input type="checkbox" name="sites" value="leboncoin" disabled>
-                        <span class="site-name">leboncoin.fr</span>
-                        <span class="site-tag tag-disabled">Indisponible</span>
+                    <label class="site-checkbox">
+                        <input type="checkbox" name="sites" value="moteurimmo">
+                        <span class="site-name">MoteurImmo</span>
+                        <span class="site-tag tag-slow">Agrégateur</span>
                     </label>
-                    <label class="site-checkbox site-disabled" title="Nécessite Playwright (non installé)">
-                        <input type="checkbox" name="sites" value="facebook" disabled>
+                    <label class="site-checkbox">
+                        <input type="checkbox" name="sites" value="leboncoin" checked>
+                        <span class="site-name">leboncoin.fr</span>
+                        <span class="site-tag tag-warning">Playwright</span>
+                    </label>
+                    <label class="site-checkbox">
+                        <input type="checkbox" name="sites" value="facebook">
                         <span class="site-name">Facebook</span>
-                        <span class="site-tag tag-disabled">Indisponible</span>
+                        <span class="site-tag tag-warning">Connexion requise</span>
                     </label>
                 </div>
-                <small>Les sites "Rapides" utilisent des requêtes HTTP simples. Les sites "Lents" nécessitent un navigateur.</small>
+                <small>Tous les sites sont actifs. LeBonCoin utilise Playwright. Facebook peut nécessiter une connexion.</small>
             </div>
 
             <button type="submit" class="btn btn-primary btn-lg btn-block">
@@ -95,11 +110,12 @@
         <h4>Comment ça marche?</h4>
         <ol>
             <li>Choisis une ville et un rayon de recherche</li>
-            <li>Sélectionne les sites à scraper (pap.fr et Figaro recommandés)</li>
+            <li>Sélectionne les sites à scraper (PAP + EntreParticuliers recommandés)</li>
             <li>Clique sur <strong>"Lancer le Scraping"</strong></li>
             <li>Attends que la barre de progression arrive à 100%</li>
             <li>Les annonces apparaissent automatiquement dans ton Dashboard!</li>
         </ol>
+        <p style="margin-top: 1rem; font-size: 0.9rem;"><strong>Sites 100% particuliers:</strong> PAP, EntreParticuliers, ParuVendu (avec filtre)</p>
     </div>
 </div>
 
@@ -203,7 +219,7 @@
 
 .sites-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 0.75rem;
     margin-bottom: 0.5rem;
 }

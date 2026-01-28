@@ -465,6 +465,21 @@ def run_scraping_task(user_id, ville, rayon, sites):
                     scraper = FacebookMarketplaceScraper()
                     listings = scraper.scrape(ville, rayon, max_pages=1)
                     all_listings.extend(listings)
+                elif site_name == 'entreparticuliers':
+                    from scrapers.entreparticuliers import EntreParticuliersScraper
+                    scraper = EntreParticuliersScraper()
+                    listings = scraper.scrape(ville, rayon, max_pages=2)
+                    all_listings.extend(listings)
+                elif site_name == 'paruvendu':
+                    from scrapers.paruvendu import ParuvenduScraper
+                    scraper = ParuvenduScraper()
+                    listings = scraper.scrape(ville, rayon, max_pages=2)
+                    all_listings.extend(listings)
+                elif site_name == 'moteurimmo':
+                    from scrapers.moteurimmo import MoteurImmoScraper
+                    scraper = MoteurImmoScraper()
+                    listings = scraper.scrape(ville, rayon, max_pages=2)
+                    all_listings.extend(listings)
             except Exception as e:
                 print(f"Erreur scraping {site_name}: {e}")
                 continue

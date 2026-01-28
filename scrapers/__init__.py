@@ -7,6 +7,8 @@ from .bienici import BieniciScraper
 from .seloger import SelogerScraper
 from .facebook_marketplace import FacebookMarketplaceScraper
 from .figaro_immo import FigaroImmoScraper
+from .entreparticuliers import EntreParticuliersScraper
+from .moteurimmo import MoteurImmoScraper
 
 __all__ = [
     'BaseScraper',
@@ -17,5 +19,7 @@ __all__ = [
     'BieniciScraper',
     'SelogerScraper',
     'FacebookMarketplaceScraper',
-    'FigaroImmoScraper'
+    'FigaroImmoScraper',
+    'EntreParticuliersScraper',
+    'MoteurImmoScraper'
 ]
