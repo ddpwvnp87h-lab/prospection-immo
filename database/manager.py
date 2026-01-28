@@ -158,7 +158,7 @@ class DatabaseManager:
             return False
         try:
             # Vérifier si des préférences existent déjà
-            existing = self._api_request('GET', 'user_preferences', {
+            existing = self._api_request('GET', 'search_params', {
                 'select': 'id',
                 'user_id': f'eq.{user_id}'
             })
@@ -175,13 +175,13 @@ class DatabaseManager:
 
             if existing:
                 # Mise à jour
-                self._api_request('PATCH', 'user_preferences',
+                self._api_request('PATCH', 'search_params',
                     params={'user_id': f'eq.{user_id}'},
                     data=pref_data)
             else:
                 # Insertion
                 pref_data['created_at'] = datetime.now().isoformat()
-                self._api_request('POST', 'user_preferences', data=pref_data)
+                self._api_request('POST', 'search_params', data=pref_data)
 
             return True
         except Exception as e:
@@ -193,7 +193,7 @@ class DatabaseManager:
         if not self.connected:
             return None
         try:
-            result = self._api_request('GET', 'user_preferences', {
+            result = self._api_request('GET', 'search_params', {
                 'select': '*',
                 'user_id': f'eq.{user_id}'
             })
