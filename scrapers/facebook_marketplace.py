@@ -18,6 +18,10 @@ class FacebookMarketplaceScraper(BaseScraper):
     """Scraper pour Facebook Marketplace - Playwright + fallback HTML"""
 
     @property
+    def site_key(self) -> str:
+        return "facebook"
+
+    @property
     def site_name(self) -> str:
         return "facebook-marketplace"
 

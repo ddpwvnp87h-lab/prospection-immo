@@ -17,6 +17,10 @@ class FigaroImmoScraper(BaseScraper):
     """Scraper pour proprietes.lefigaro.fr / explorimmo"""
 
     @property
+    def site_key(self) -> str:
+        return "figaro"
+
+    @property
     def site_name(self) -> str:
         return "figaro-immo"
 
@@ -206,15 +210,27 @@ class FigaroImmoScraper(BaseScraper):
                         if prix > 10000:
                             break
 
-            # Localisation
+            # Localisation - extraire du texte de l'annonce
             text = ad.get_text()
-            localisation = location['ville']
-            if location['code_postal']:
-                localisation = f"{location['ville']} ({location['code_postal']})"
+            localisation = None
 
-            cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ\s-]+)', text)
-            if cp_match:
-                localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
+            # Pattern 1: "Ville (12345)" ou "Paris 17E (75017)"
+            loc_match = re.search(r'([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s-]+)\s*\((\d{5})\)', text)
+            if loc_match:
+                localisation = f"{loc_match.group(1).strip()} ({loc_match.group(2)})"
+
+            # Pattern 2: "12345 Ville"
+            if not localisation:
+                cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s-]+)', text)
+                if cp_match:
+                    localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
+
+            # Fallback: utiliser la localisation de recherche avec code postal
+            if not localisation:
+                if location['code_postal']:
+                    localisation = f"{location['ville']} ({location['code_postal']})"
+                else:
+                    localisation = location['ville']
 
             photos = []
             img = ad.find('img')

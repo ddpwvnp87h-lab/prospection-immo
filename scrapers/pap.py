@@ -17,6 +17,10 @@ class PapScraper(BaseScraper):
     """Scraper pour pap.fr (De Particulier À Particulier) - 100% particuliers"""
 
     @property
+    def site_key(self) -> str:
+        return "pap"
+
+    @property
     def site_name(self) -> str:
         return "pap.fr"
 
@@ -80,7 +84,7 @@ class PapScraper(BaseScraper):
                             print(f"    📄 Page {page_num}: {len(ads)} annonces")
 
                             for ad in ads[:15]:
-                                listing = self._extract_listing(ad, location['ville'])
+                                listing = self._extract_listing(ad, location)
                                 if listing:
                                     listings.append(listing)
 
@@ -150,7 +154,7 @@ class PapScraper(BaseScraper):
                     print(f"    📄 Page {page_num}: {len(ads)} annonces")
 
                     for ad in ads[:15]:
-                        listing = self._extract_listing(ad, location['ville'])
+                        listing = self._extract_listing(ad, location)
                         if listing:
                             listings.append(listing)
 
@@ -207,7 +211,7 @@ class PapScraper(BaseScraper):
         links = soup.find_all('a', href=re.compile(r'/annonces/[a-z]+-[0-9]+'))
         return links if links else []
 
-    def _extract_listing(self, ad, ville: str) -> Dict[str, Any]:
+    def _extract_listing(self, ad, location: dict) -> Dict[str, Any]:
         """Extrait une annonce"""
         try:
             # Lien
@@ -247,20 +251,39 @@ class PapScraper(BaseScraper):
                 if prix_match:
                     prix = self._parse_price(prix_match.group(1))
 
-            # Localisation - extraire du texte
-            localisation = ville
+            # Localisation - extraire du texte de l'annonce
+            localisation = None
             text = ad.get_text()
 
-            # Chercher code postal dans le texte
-            cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ\s-]+)', text)
-            if cp_match:
-                localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
-            else:
+            # Pattern 1: "Paris 17E (75017)" ou "Ville (12345)"
+            loc_match = re.search(r'([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s-]+)\s*\((\d{5})\)', text)
+            if loc_match:
+                ville_name = loc_match.group(1).strip()
+                cp = loc_match.group(2)
+                localisation = f"{ville_name} ({cp})"
+
+            # Pattern 2: "12345 Ville"
+            if not localisation:
+                cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s-]+)', text)
+                if cp_match:
+                    localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
+
+            # Pattern 3: Chercher dans les éléments HTML
+            if not localisation:
                 for selector in ['.item-location', '.location', '.ville', '.lieu']:
                     elem = ad.select_one(selector)
                     if elem:
-                        localisation = elem.get_text(strip=True)
-                        break
+                        loc_text = elem.get_text(strip=True)
+                        if loc_text and len(loc_text) > 2:
+                            localisation = loc_text
+                            break
+
+            # Fallback: utiliser la localisation de recherche avec code postal
+            if not localisation:
+                if location.get('code_postal'):
+                    localisation = f"{location['ville']} ({location['code_postal']})"
+                else:
+                    localisation = location['ville']
 
             # Photo
             photos = []

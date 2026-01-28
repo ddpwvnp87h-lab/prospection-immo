@@ -197,6 +197,8 @@ def filter_by_location(listings: List[Dict[str, Any]], target_location: str, dep
     Returns:
         Liste des annonces correspondant au département recherché
     """
+    import re
+
     # Extraire le département cible
     if not departement:
         departement = extract_department(target_location)
@@ -207,27 +209,40 @@ def filter_by_location(listings: List[Dict[str, Any]], target_location: str, dep
 
     print(f"📍 Filtrage par département: {departement}")
 
+    # Déterminer si c'est un département DOM-TOM (plus strict car pas de confusion possible)
+    is_dom_tom = departement.startswith('97') or departement.startswith('98')
+
     filtered = []
     excluded = 0
+    no_dept_count = 0
 
     for listing in listings:
         localisation = listing.get('localisation', '')
         listing_dept = extract_department(localisation)
 
-        # Si on ne peut pas extraire le département, on garde l'annonce (bénéfice du doute)
+        # Si on ne peut pas extraire le département de l'annonce
         if not listing_dept:
-            filtered.append(listing)
-            continue
+            no_dept_count += 1
+            # Pour les DOM-TOM, on exclut les annonces sans département (trop de risque de faux positifs)
+            # Pour la métropole, on garde par bénéfice du doute
+            if is_dom_tom:
+                excluded += 1
+                continue
+            else:
+                filtered.append(listing)
+                continue
 
         # Vérifier si le département correspond
         if listing_dept == departement:
             filtered.append(listing)
         else:
             excluded += 1
-            # Debug: afficher les exclusions
-            # print(f"  ❌ Exclu: {localisation} (dept {listing_dept} != {departement})")
+            print(f"  ❌ Exclu: {localisation} (dept {listing_dept} != {departement})")
 
     if excluded > 0:
         print(f"🚫 {excluded} annonces hors département {departement} exclues")
+    if no_dept_count > 0:
+        action = "exclues (DOM-TOM strict)" if is_dom_tom else "gardées (bénéfice du doute)"
+        print(f"❓ {no_dept_count} annonces sans département détecté - {action}")
 
     return filtered

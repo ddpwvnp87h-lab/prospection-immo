@@ -16,6 +16,10 @@ class ParuvenduScraper(BaseScraper):
     """Scraper pour paruvendu.fr - filtre particuliers"""
 
     @property
+    def site_key(self) -> str:
+        return "paruvendu"
+
+    @property
     def site_name(self) -> str:
         return "paruvendu.fr"
 
@@ -203,15 +207,24 @@ class ParuvenduScraper(BaseScraper):
                 text = prix_elem.get_text() if hasattr(prix_elem, 'get_text') else str(prix_elem)
                 prix = self._parse_price(text)
 
-            # Localisation
+            # Localisation - extraire du texte
             text = ad.get_text()
-            localisation = location['ville']
-            if location['code_postal']:
-                localisation = f"{location['ville']} ({location['code_postal']})"
+            localisation = None
 
-            cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ\s-]+)', text)
-            if cp_match:
-                localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
+            # Pattern 1: "Ville (12345)"
+            loc_match = re.search(r'([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\s-]+)\s*\((\d{5})\)', text)
+            if loc_match:
+                localisation = f"{loc_match.group(1).strip()} ({loc_match.group(2)})"
+
+            # Pattern 2: "12345 Ville"
+            if not localisation:
+                cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s-]+)', text)
+                if cp_match:
+                    localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
+
+            # Fallback
+            if not localisation:
+                localisation = f"{location['ville']} ({location['code_postal']})" if location['code_postal'] else location['ville']
 
             surface, pieces = self._extract_surface_pieces(text)
 

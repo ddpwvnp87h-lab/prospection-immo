@@ -18,6 +18,10 @@ class LeboncoinScraper(BaseScraper):
     """Scraper pour leboncoin.fr - Playwright + fallback API/HTML"""
 
     @property
+    def site_key(self) -> str:
+        return "leboncoin"
+
+    @property
     def site_name(self) -> str:
         return "leboncoin.fr"
 

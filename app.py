@@ -452,6 +452,7 @@ def run_scraping_task(user_id, ville, rayon, sites, lat=None, lon=None):
 
         # Import des modules de scraping
         from utils.validator import validate_listing, deduplicate_by_url, deduplicate_by_signature, filter_agencies, filter_by_location
+        from scrapers.site_config import SiteManager, get_profile
 
         # Si coordonnées GPS fournies, pré-remplir le cache de géolocalisation
         geo_override = None
@@ -494,6 +495,14 @@ def run_scraping_task(user_id, ville, rayon, sites, lat=None, lon=None):
             )
 
             try:
+                # Vérifier si le site est disponible (kill switch)
+                if not SiteManager.is_site_available(site_name):
+                    reason = SiteManager.get_disabled_reason(site_name)
+                    print(f"⏭️ {site_name} désactivé: {reason}")
+                    continue
+
+                # Récupérer le profil du site
+                profile = get_profile(site_name)
                 scraper = None
 
                 if site_name == 'pap':
@@ -523,11 +532,15 @@ def run_scraping_task(user_id, ville, rayon, sites, lat=None, lon=None):
                     if geo_override:
                         scraper._geo_cache[ville] = geo_override
 
-                    max_pages = 1 if site_name == 'facebook' else 2
+                    # Utiliser le max_pages du profil du site
+                    max_pages = profile.max_pages
+                    print(f"  📊 Profil {site_name}: RPS={profile.rps}, max_pages={max_pages}, strict={profile.strict_location}")
+
                     listings = scraper.scrape(ville, rayon, max_pages=max_pages)
                     all_listings.extend(listings)
             except Exception as e:
                 print(f"Erreur scraping {site_name}: {e}")
+                # Enregistrer l'échec pour le circuit breaker si applicable
                 continue
 
         # Validation et filtrage

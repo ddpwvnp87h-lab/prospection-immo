@@ -106,13 +106,16 @@
                         <span class="site-name">leboncoin.fr</span>
                         <span class="site-tag tag-warning">Playwright</span>
                     </label>
-                    <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="facebook" {{ 'checked' if 'facebook' in saved_sites else '' }}>
+                    <label class="site-checkbox site-disabled" title="Désactivé par défaut (site hostile)">
+                        <input type="checkbox" name="sites" value="facebook" {{ 'checked' if 'facebook' in saved_sites else '' }} disabled>
                         <span class="site-name">Facebook</span>
-                        <span class="site-tag tag-warning">Connexion requise</span>
+                        <span class="site-tag tag-danger">Désactivé</span>
                     </label>
                 </div>
-                <small>Tous les sites sont actifs. LeBonCoin utilise Playwright. Facebook peut nécessiter une connexion.</small>
+                <small>
+                    <strong>Stratégie anti-blocage:</strong> Rate limiting + jitter + backoff automatique.
+                    Facebook est désactivé (trop instable).
+                </small>
             </div>
 
             <button type="submit" class="btn btn-primary btn-lg btn-block">
@@ -313,6 +316,11 @@
 .tag-warning {
     background: #FEE2E2;
     color: #991B1B;
+}
+
+.tag-danger {
+    background: #7F1D1D;
+    color: white;
 }
 
 .tag-disabled {
