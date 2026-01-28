@@ -165,6 +165,9 @@ class TableQuery:
         self.db = db
         self.table = table
         self.params = {'select': '*'}
+        self._insert_data = None
+        self._update_data = None
+        self._delete_flag = False
 
     def select(self, columns: str = '*', count: str = None):
         self.params['select'] = columns
@@ -185,21 +188,32 @@ class TableQuery:
         self.params['order'] = f'{column}.{direction}'
         return self
 
-    def execute(self):
-        result = self.db._request('GET', self.table, params=self.params)
-        return QueryResult(result)
-
     def insert(self, data: dict):
-        result = self.db._request('POST', self.table, data=data)
-        return QueryResult(result if isinstance(result, list) else [result])
+        self._insert_data = data
+        return self
 
     def update(self, data: dict):
         self._update_data = data
         return self
 
     def delete(self):
-        self._delete = True
+        self._delete_flag = True
         return self
+
+    def execute(self):
+        """Exécute la requête (GET, POST, PATCH ou DELETE)."""
+        if self._insert_data:
+            result = self.db._request('POST', self.table, data=self._insert_data)
+            return QueryResult(result if isinstance(result, list) else [result] if result else [])
+        elif self._update_data:
+            result = self.db._request('PATCH', self.table, data=self._update_data, params=self.params)
+            return QueryResult(result if isinstance(result, list) else [result] if result else [])
+        elif self._delete_flag:
+            result = self.db._request('DELETE', self.table, params=self.params)
+            return QueryResult(result if isinstance(result, list) else [result] if result else [])
+        else:
+            result = self.db._request('GET', self.table, params=self.params)
+            return QueryResult(result if isinstance(result, list) else [result] if result else [])
 
 
 class QueryResult:
