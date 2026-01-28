@@ -1,16 +1,15 @@
 // ============================================================================
-// PWA - Service Worker Registration
+// PWA - Service Worker DISABLED (caused redirect issues)
 // ============================================================================
 
+// Service Worker désactivé - causait des erreurs de redirection
 if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js')
-            .then(registration => {
-                console.log('Service Worker registered:', registration);
-            })
-            .catch(error => {
-                console.log('Service Worker registration failed:', error);
-            });
+    // Désinscrire tous les service workers existants
+    navigator.serviceWorker.getRegistrations().then(registrations => {
+        registrations.forEach(registration => {
+            registration.unregister();
+            console.log('Service Worker unregistered');
+        });
     });
 }
 
