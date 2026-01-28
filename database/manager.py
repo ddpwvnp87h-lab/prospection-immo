@@ -150,6 +150,60 @@ class DatabaseManager:
             print(f"⚠️ Erreur delete: {e}", flush=True)
             return False
 
+    # ============ Méthodes pour les préférences utilisateur ============
+
+    def save_search_preferences(self, user_id: str, preferences: Dict) -> bool:
+        """Sauvegarde les préférences de recherche d'un utilisateur."""
+        if not self.connected:
+            return False
+        try:
+            # Vérifier si des préférences existent déjà
+            existing = self._api_request('GET', 'user_preferences', {
+                'select': 'id',
+                'user_id': f'eq.{user_id}'
+            })
+
+            pref_data = {
+                'user_id': user_id,
+                'ville': preferences.get('ville', 'Paris'),
+                'rayon': preferences.get('rayon', 10),
+                'sites': preferences.get('sites', ['pap', 'entreparticuliers']),
+                'lat': preferences.get('lat'),
+                'lon': preferences.get('lon'),
+                'updated_at': datetime.now().isoformat()
+            }
+
+            if existing:
+                # Mise à jour
+                self._api_request('PATCH', 'user_preferences',
+                    params={'user_id': f'eq.{user_id}'},
+                    data=pref_data)
+            else:
+                # Insertion
+                pref_data['created_at'] = datetime.now().isoformat()
+                self._api_request('POST', 'user_preferences', data=pref_data)
+
+            return True
+        except Exception as e:
+            print(f"⚠️ Erreur sauvegarde préférences: {e}", flush=True)
+            return False
+
+    def get_search_preferences(self, user_id: str) -> Optional[Dict]:
+        """Récupère les préférences de recherche d'un utilisateur."""
+        if not self.connected:
+            return None
+        try:
+            result = self._api_request('GET', 'user_preferences', {
+                'select': '*',
+                'user_id': f'eq.{user_id}'
+            })
+            if result and len(result) > 0:
+                return result[0]
+            return None
+        except Exception as e:
+            print(f"⚠️ Erreur lecture préférences: {e}", flush=True)
+            return None
+
 
 class Query:
     """Constructeur de requêtes chainable."""

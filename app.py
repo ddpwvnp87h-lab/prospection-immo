@@ -594,7 +594,13 @@ def scrape_page():
     """Page de lancement du scraping"""
     user_id = session.get('user_id')
     status = get_scraping_status(user_id)
-    return render_template('scrape.html', scraping_status=status)
+
+    # Charger les préférences sauvegardées
+    preferences = None
+    if is_db_connected():
+        preferences = db.get_search_preferences(user_id)
+
+    return render_template('scrape.html', scraping_status=status, preferences=preferences)
 
 @app.route('/scrape/run', methods=['POST'])
 @login_required
@@ -626,6 +632,16 @@ def run_scrape():
 
     if not sites:
         sites = ['pap', 'figaro']  # Sites par défaut (sans Playwright)
+
+    # Sauvegarder les préférences de recherche
+    if is_db_connected():
+        db.save_search_preferences(user_id, {
+            'ville': ville,
+            'rayon': rayon,
+            'sites': sites,
+            'lat': lat,
+            'lon': lon
+        })
 
     # Lancer le scraping en arrière-plan
     thread = threading.Thread(

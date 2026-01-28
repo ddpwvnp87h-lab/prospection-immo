@@ -48,20 +48,20 @@
                 <div class="form-group form-group-location">
                     <label for="ville">Ville ou Code Postal</label>
                     <div class="input-with-button">
-                        <input type="text" id="ville" name="ville" value="Paris" required placeholder="Paris, 75001, Lyon, 69003...">
+                        <input type="text" id="ville" name="ville" value="{{ preferences.ville if preferences else 'Paris' }}" required placeholder="Paris, 75001, Lyon, 69003...">
                         <button type="button" id="geoloc-btn" class="btn btn-secondary btn-geoloc" title="Utiliser ma position">
                             📍
                         </button>
                     </div>
                     <small class="form-hint" id="location-hint">Entrez une ville/code postal ou cliquez 📍 pour votre position</small>
                     <!-- Champs cachés pour les coordonnées -->
-                    <input type="hidden" id="lat" name="lat" value="">
-                    <input type="hidden" id="lon" name="lon" value="">
+                    <input type="hidden" id="lat" name="lat" value="{{ preferences.lat if preferences and preferences.lat else '' }}">
+                    <input type="hidden" id="lon" name="lon" value="{{ preferences.lon if preferences and preferences.lon else '' }}">
                 </div>
 
                 <div class="form-group">
                     <label for="rayon">Rayon (km)</label>
-                    <input type="number" id="rayon" name="rayon" value="10" min="1" max="100" required>
+                    <input type="number" id="rayon" name="rayon" value="{{ preferences.rayon if preferences else 10 }}" min="1" max="100" required>
                 </div>
             </div>
 
@@ -72,41 +72,42 @@
                 <small class="form-hint" id="map-hint">La carte montre la zone de recherche</small>
             </div>
 
+            {% set saved_sites = preferences.sites if preferences and preferences.sites else ['pap', 'entreparticuliers', 'leboncoin'] %}
             <div class="form-group">
                 <label>Sites à scraper</label>
                 <div class="sites-grid">
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="pap" checked>
+                        <input type="checkbox" name="sites" value="pap" {{ 'checked' if 'pap' in saved_sites else '' }}>
                         <span class="site-name">pap.fr</span>
                         <span class="site-tag tag-easy">Particuliers</span>
                     </label>
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="entreparticuliers" checked>
+                        <input type="checkbox" name="sites" value="entreparticuliers" {{ 'checked' if 'entreparticuliers' in saved_sites else '' }}>
                         <span class="site-name">EntreParticuliers</span>
                         <span class="site-tag tag-easy">100% Particuliers</span>
                     </label>
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="paruvendu">
+                        <input type="checkbox" name="sites" value="paruvendu" {{ 'checked' if 'paruvendu' in saved_sites else '' }}>
                         <span class="site-name">ParuVendu</span>
                         <span class="site-tag tag-easy">Particuliers</span>
                     </label>
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="figaro">
+                        <input type="checkbox" name="sites" value="figaro" {{ 'checked' if 'figaro' in saved_sites else '' }}>
                         <span class="site-name">Figaro Immo</span>
                         <span class="site-tag tag-easy">Rapide</span>
                     </label>
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="moteurimmo">
+                        <input type="checkbox" name="sites" value="moteurimmo" {{ 'checked' if 'moteurimmo' in saved_sites else '' }}>
                         <span class="site-name">MoteurImmo</span>
                         <span class="site-tag tag-slow">Agrégateur</span>
                     </label>
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="leboncoin" checked>
+                        <input type="checkbox" name="sites" value="leboncoin" {{ 'checked' if 'leboncoin' in saved_sites else '' }}>
                         <span class="site-name">leboncoin.fr</span>
                         <span class="site-tag tag-warning">Playwright</span>
                     </label>
                     <label class="site-checkbox">
-                        <input type="checkbox" name="sites" value="facebook">
+                        <input type="checkbox" name="sites" value="facebook" {{ 'checked' if 'facebook' in saved_sites else '' }}>
                         <span class="site-name">Facebook</span>
                         <span class="site-tag tag-warning">Connexion requise</span>
                     </label>
@@ -490,8 +491,19 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(() => {});
     }
 
-    // Géocoder la ville initiale (Paris)
-    geocodeVille('Paris');
+    // Initialiser avec les préférences sauvegardées ou Paris par défaut
+    const savedLat = parseFloat(latInput.value);
+    const savedLon = parseFloat(lonInput.value);
+    const savedVille = villeInput.value || 'Paris';
+    const savedRayon = parseInt(rayonInput.value) || 10;
+
+    if (savedLat && savedLon && !isNaN(savedLat) && !isNaN(savedLon)) {
+        // Utiliser les coordonnées sauvegardées
+        updateSearchCircle(savedLat, savedLon, savedRayon);
+    } else {
+        // Géocoder la ville sauvegardée
+        geocodeVille(savedVille);
+    }
 
     // Écouter les changements de ville (avec debounce)
     let villeTimeout = null;
