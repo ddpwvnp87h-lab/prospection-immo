@@ -22,123 +22,68 @@ class LeboncoinScraper(BaseScraper):
         return "leboncoin.fr"
 
     def scrape(self, ville: str, rayon: int, max_pages: int = 5) -> List[Dict[str, Any]]:
-        print(f"🔍 Scraping {self.site_name} pour {ville} (rayon: {rayon}km)")
+        # Obtenir les infos de géolocalisation
+        location = self.get_location_info(ville)
+        ville_name = location['ville']
+        code_postal = location['code_postal']
+
+        print(f"🔍 Scraping {self.site_name} pour {ville_name}", end="")
+        if code_postal:
+            print(f" ({code_postal})", end="")
+        print(f" - rayon: {rayon}km")
 
         listings = []
 
-        # Méthode 1: Playwright (meilleure méthode)
-        if PLAYWRIGHT_AVAILABLE:
-            listings = self._scrape_playwright(ville, rayon, max_pages)
+        # Méthode 1: API avec géolocalisation (meilleure précision)
+        if location['lat'] and location['lon']:
+            listings = self._scrape_api_geo(location, rayon, max_pages)
 
-        # Méthode 2: API directe (fallback)
-        if not listings:
-            listings = self._scrape_api(ville, rayon, max_pages)
+        # Méthode 2: Playwright
+        if not listings and PLAYWRIGHT_AVAILABLE:
+            listings = self._scrape_playwright(location, rayon, max_pages)
 
-        # Méthode 3: HTML simple (dernier recours)
+        # Méthode 3: API par texte
         if not listings:
-            listings = self._scrape_html(ville, rayon, max_pages)
+            listings = self._scrape_api(location, rayon, max_pages)
+
+        # Méthode 4: HTML simple
+        if not listings:
+            listings = self._scrape_html(location, rayon, max_pages)
 
         self._print_stats(listings)
         return listings
 
-    def _scrape_playwright(self, ville: str, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec Playwright (JavaScript rendu)"""
-        listings = []
-
-        try:
-            print("  🎭 Mode Playwright activé")
-
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                context = browser.new_context(
-                    user_agent=self.user_agent,
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='fr-FR'
-                )
-                page = context.new_page()
-
-                # Bloquer les ressources inutiles pour accélérer
-                page.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2}", lambda route: route.abort())
-
-                ville_encoded = ville.replace(' ', '%20')
-
-                for page_num in range(1, max_pages + 1):
-                    try:
-                        url = f"https://www.leboncoin.fr/recherche?category=9&text={ville_encoded}&page={page_num}"
-                        print(f"  📄 Page {page_num}: {url[:60]}...")
-
-                        page.goto(url, wait_until='networkidle', timeout=30000)
-
-                        # Attendre les annonces
-                        try:
-                            page.wait_for_selector('[data-qa-id="aditem_container"], article, [class*="styles_adCard"]', timeout=10000)
-                        except:
-                            print(f"    ⚠️ Timeout sélecteur page {page_num}")
-
-                        # Extraire le HTML
-                        html = page.content()
-                        soup = BeautifulSoup(html, 'html.parser')
-
-                        # Chercher les annonces
-                        ads = soup.select('[data-qa-id="aditem_container"]')
-                        if not ads:
-                            ads = soup.find_all('article')
-                        if not ads:
-                            ads = soup.find_all('a', href=re.compile(r'/ad/'))
-
-                        if not ads:
-                            print(f"    ⚠️ Aucune annonce trouvée page {page_num}")
-                            break
-
-                        print(f"    📋 {len(ads)} annonces trouvées")
-
-                        for ad in ads[:15]:
-                            listing = self._extract_listing_html(ad, ville)
-                            if listing:
-                                listings.append(listing)
-
-                        self._wait()
-
-                    except PlaywrightTimeout:
-                        print(f"    ⏱️ Timeout page {page_num}")
-                        break
-                    except Exception as e:
-                        print(f"    ⚠️ Erreur page {page_num}: {str(e)[:50]}")
-                        break
-
-                browser.close()
-
-        except Exception as e:
-            print(f"  ⚠️ Erreur Playwright: {e}")
-
-        return listings
-
-    def _scrape_api(self, ville: str, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape via l'API LeBonCoin"""
+    def _scrape_api_geo(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
+        """Scrape via l'API LeBonCoin avec coordonnées GPS"""
         listings = []
 
         session = requests.Session()
         session.headers.update({
             'User-Agent': self.user_agent,
             'Accept': 'application/json',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
             'Origin': 'https://www.leboncoin.fr',
             'Referer': 'https://www.leboncoin.fr/',
-            'api_key': 'ba0c2dad52b3ec',
         })
 
         try:
-            print("  🔌 Mode API...")
+            print("  🎯 Mode API géolocalisée...")
             api_url = "https://api.leboncoin.fr/finder/search"
 
             for page_num in range(1, max_pages + 1):
+                # Payload avec coordonnées GPS
                 payload = {
                     "limit": 35,
                     "offset": (page_num - 1) * 35,
                     "filters": {
-                        "category": {"id": "9"},
+                        "category": {"id": "9"},  # Immobilier vente
                         "enums": {"ad_type": ["offer"]},
-                        "keywords": {"text": ville},
+                        "location": {
+                            "area": {
+                                "lat": location['lat'],
+                                "lng": location['lon'],
+                                "radius": rayon * 1000  # En mètres
+                            }
+                        }
                     },
                     "sort_by": "time",
                     "sort_order": "desc"
@@ -154,10 +99,10 @@ class LeboncoinScraper(BaseScraper):
                         if not ads:
                             break
 
-                        print(f"    📋 Page {page_num}: {len(ads)} annonces (API)")
+                        print(f"    📄 Page {page_num}: {len(ads)} annonces")
 
                         for ad in ads:
-                            listing = self._parse_api_ad(ad, ville)
+                            listing = self._parse_api_ad(ad, location['ville'])
                             if listing:
                                 listings.append(listing)
 
@@ -171,37 +116,174 @@ class LeboncoinScraper(BaseScraper):
                     break
 
         except Exception as e:
-            print(f"  ⚠️ Erreur API générale: {e}")
+            print(f"  ⚠️ Erreur API géo: {e}")
 
         return listings
 
-    def _scrape_html(self, ville: str, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape HTML simple (fallback)"""
+    def _scrape_playwright(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
+        """Scrape avec Playwright"""
+        listings = []
+
+        try:
+            print("  🎭 Mode Playwright...")
+
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(
+                    user_agent=self.user_agent,
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='fr-FR'
+                )
+                page = context.new_page()
+                page.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2}", lambda route: route.abort())
+
+                # Construire l'URL avec code postal si disponible
+                search_term = location['code_postal'] or location['ville']
+                search_encoded = search_term.replace(' ', '%20')
+
+                for page_num in range(1, max_pages + 1):
+                    try:
+                        # URL avec localisation
+                        url = f"https://www.leboncoin.fr/recherche?category=9&text={search_encoded}&page={page_num}"
+
+                        if location['lat'] and location['lon']:
+                            url += f"&lat={location['lat']}&lng={location['lon']}&radius={rayon * 1000}"
+
+                        print(f"    📄 Page {page_num}...")
+                        page.goto(url, wait_until='networkidle', timeout=30000)
+
+                        try:
+                            page.wait_for_selector('[data-qa-id="aditem_container"], article', timeout=10000)
+                        except:
+                            pass
+
+                        html = page.content()
+                        soup = BeautifulSoup(html, 'html.parser')
+
+                        ads = soup.select('[data-qa-id="aditem_container"]')
+                        if not ads:
+                            ads = soup.find_all('article')
+
+                        if not ads:
+                            break
+
+                        print(f"    📋 {len(ads)} annonces")
+
+                        for ad in ads[:15]:
+                            listing = self._extract_listing_html(ad, location['ville'])
+                            if listing:
+                                listings.append(listing)
+
+                        self._wait()
+
+                    except PlaywrightTimeout:
+                        print(f"    ⏱️ Timeout page {page_num}")
+                        break
+                    except Exception as e:
+                        print(f"    ⚠️ Erreur: {str(e)[:40]}")
+                        break
+
+                browser.close()
+
+        except Exception as e:
+            print(f"  ⚠️ Erreur Playwright: {e}")
+
+        return listings
+
+    def _scrape_api(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
+        """Scrape via l'API par texte"""
+        listings = []
+
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': self.user_agent,
+            'Accept': 'application/json',
+            'Origin': 'https://www.leboncoin.fr',
+        })
+
+        try:
+            print("  🔌 Mode API texte...")
+            api_url = "https://api.leboncoin.fr/finder/search"
+
+            # Utiliser code postal ou nom de ville
+            search_text = location['code_postal'] or location['ville']
+
+            for page_num in range(1, max_pages + 1):
+                payload = {
+                    "limit": 35,
+                    "offset": (page_num - 1) * 35,
+                    "filters": {
+                        "category": {"id": "9"},
+                        "enums": {"ad_type": ["offer"]},
+                        "keywords": {"text": search_text},
+                    },
+                    "sort_by": "time",
+                    "sort_order": "desc"
+                }
+
+                # Ajouter département si disponible
+                if location['departement']:
+                    payload["filters"]["location"] = {
+                        "departments": [location['departement']]
+                    }
+
+                try:
+                    response = session.post(api_url, json=payload, timeout=15)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        ads = data.get('ads', [])
+
+                        if not ads:
+                            break
+
+                        print(f"    📄 Page {page_num}: {len(ads)} annonces")
+
+                        for ad in ads:
+                            listing = self._parse_api_ad(ad, location['ville'])
+                            if listing:
+                                listings.append(listing)
+
+                        self._wait()
+                    else:
+                        break
+
+                except Exception as e:
+                    print(f"    ⚠️ Erreur: {e}")
+                    break
+
+        except Exception as e:
+            print(f"  ⚠️ Erreur API: {e}")
+
+        return listings
+
+    def _scrape_html(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
+        """Scrape HTML simple"""
         listings = []
 
         session = requests.Session()
         session.headers.update({
             'User-Agent': self.user_agent,
             'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
         })
 
         try:
             print("  📄 Mode HTML...")
 
+            search_term = location['code_postal'] or location['ville']
+
             for page_num in range(1, max_pages + 1):
-                url = f"https://www.leboncoin.fr/recherche?category=9&text={ville}&page={page_num}"
+                url = f"https://www.leboncoin.fr/recherche?category=9&text={search_term}&page={page_num}"
 
                 try:
                     response = session.get(url, timeout=15)
 
                     if response.status_code != 200:
-                        print(f"    ⚠️ Status {response.status_code}")
                         break
 
                     soup = BeautifulSoup(response.content, 'html.parser')
 
-                    # Chercher le JSON __NEXT_DATA__
+                    # Chercher JSON __NEXT_DATA__
                     script = soup.find('script', id='__NEXT_DATA__')
                     if script and script.string:
                         try:
@@ -209,9 +291,9 @@ class LeboncoinScraper(BaseScraper):
                             ads = self._find_ads_in_json(data)
 
                             if ads:
-                                print(f"    📋 Page {page_num}: {len(ads)} annonces (JSON)")
+                                print(f"    📄 Page {page_num}: {len(ads)} annonces")
                                 for ad in ads:
-                                    listing = self._parse_json_ad(ad, ville)
+                                    listing = self._parse_json_ad(ad, location['ville'])
                                     if listing:
                                         listings.append(listing)
                         except:
@@ -220,16 +302,16 @@ class LeboncoinScraper(BaseScraper):
                     self._wait()
 
                 except Exception as e:
-                    print(f"    ⚠️ Erreur HTML: {e}")
+                    print(f"    ⚠️ Erreur: {e}")
                     break
 
         except Exception as e:
-            print(f"  ⚠️ Erreur HTML générale: {e}")
+            print(f"  ⚠️ Erreur HTML: {e}")
 
         return listings
 
     def _extract_listing_html(self, ad, ville: str) -> Dict[str, Any]:
-        """Extrait une annonce du HTML Playwright"""
+        """Extrait une annonce du HTML"""
         try:
             # Lien
             lien = ''
@@ -240,15 +322,11 @@ class LeboncoinScraper(BaseScraper):
                 if link:
                     lien = link.get('href', '')
 
-            if not lien:
+            if not lien or ('/ad/' not in lien and '/ventes_immobilieres/' not in lien):
                 return None
 
             if not lien.startswith('http'):
                 lien = f"https://www.leboncoin.fr{lien}"
-
-            # Ignorer les liens non-annonces
-            if '/ad/' not in lien and '/ventes_immobilieres/' not in lien:
-                return None
 
             # Titre
             titre = ''
@@ -312,11 +390,17 @@ class LeboncoinScraper(BaseScraper):
             if isinstance(price, list):
                 price = price[0] if price else 0
 
+            # Localisation précise
+            location = ad.get('location', {})
+            localisation = location.get('city', ville)
+            if location.get('zipcode'):
+                localisation = f"{localisation} ({location.get('zipcode')})"
+
             return {
                 'titre': ad.get('subject', 'Annonce LeBonCoin'),
                 'date_publication': ad.get('first_publication_date', '')[:10] or datetime.now().strftime('%Y-%m-%d'),
                 'prix': int(price) if price else 0,
-                'localisation': ad.get('location', {}).get('city', ville),
+                'localisation': localisation,
                 'lien': f"https://www.leboncoin.fr/ad/ventes_immobilieres/{ad.get('list_id')}",
                 'site_source': self.site_name,
                 'photos': photos,
@@ -331,11 +415,14 @@ class LeboncoinScraper(BaseScraper):
     def _parse_json_ad(self, ad: dict, ville: str) -> Dict[str, Any]:
         """Parse une annonce JSON"""
         try:
+            location = ad.get('location', {})
+            localisation = location.get('city', ville) if isinstance(location, dict) else ville
+
             return {
                 'titre': ad.get('subject', ad.get('title', 'Annonce LeBonCoin')),
                 'date_publication': datetime.now().strftime('%Y-%m-%d'),
                 'prix': self._safe_int(ad.get('price')),
-                'localisation': ad.get('location', {}).get('city', ville) if isinstance(ad.get('location'), dict) else ville,
+                'localisation': localisation,
                 'lien': f"https://www.leboncoin.fr{ad.get('url', '')}",
                 'site_source': self.site_name,
                 'photos': ad.get('images', [])[:3] if isinstance(ad.get('images'), list) else [],
@@ -366,12 +453,6 @@ class LeboncoinScraper(BaseScraper):
                     return result
 
         return []
-
-    def _parse_price(self, text: str) -> int:
-        try:
-            return int(re.sub(r'[^\d]', '', str(text)))
-        except:
-            return 0
 
     def _safe_int(self, value) -> int:
         try:

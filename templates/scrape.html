@@ -46,8 +46,9 @@
         <form method="POST" action="{{ url_for('run_scrape') }}" class="scrape-form" id="scrape-form">
             <div class="form-row">
                 <div class="form-group">
-                    <label for="ville">Ville</label>
-                    <input type="text" id="ville" name="ville" value="Paris" required placeholder="Paris, Lyon, Marseille...">
+                    <label for="ville">Ville ou Code Postal</label>
+                    <input type="text" id="ville" name="ville" value="Paris" required placeholder="Paris, 75001, Lyon, 69003...">
+                    <small class="form-hint">Entrez un nom de ville ou un code postal pour plus de précision</small>
                 </div>
 
                 <div class="form-group">

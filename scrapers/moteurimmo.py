@@ -5,7 +5,6 @@ from datetime import datetime
 import re
 from .base import BaseScraper
 
-# Import Playwright optionnel
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
     PLAYWRIGHT_AVAILABLE = True
@@ -21,23 +20,27 @@ class MoteurImmoScraper(BaseScraper):
         return "moteurimmo.fr"
 
     def scrape(self, ville: str, rayon: int, max_pages: int = 5) -> List[Dict[str, Any]]:
-        print(f"🔍 Scraping {self.site_name} pour {ville} (rayon: {rayon}km)")
+        location = self.get_location_info(ville)
+        ville_name = location['ville']
+        code_postal = location['code_postal']
+
+        print(f"🔍 Scraping {self.site_name} pour {ville_name}", end="")
+        if code_postal:
+            print(f" ({code_postal})", end="")
+        print(f" - rayon: {rayon}km")
 
         listings = []
 
-        # Méthode 1: Playwright
         if PLAYWRIGHT_AVAILABLE:
-            listings = self._scrape_playwright(ville, max_pages)
+            listings = self._scrape_playwright(location, max_pages)
 
-        # Méthode 2: HTML
         if not listings:
-            listings = self._scrape_html(ville, max_pages)
+            listings = self._scrape_html(location, max_pages)
 
         self._print_stats(listings)
         return listings
 
-    def _scrape_playwright(self, ville: str, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec Playwright"""
+    def _scrape_playwright(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
         listings = []
 
         try:
@@ -52,40 +55,45 @@ class MoteurImmoScraper(BaseScraper):
                 )
                 page = context.new_page()
 
-                ville_slug = self._slugify(ville)
-                # particulier=1 pour filtrer
-                url = f"https://www.moteurimmo.fr/recherche/achat/{ville_slug}?particulier=1"
+                urls = self._build_urls(location)
 
-                print(f"  🔗 {url}")
-                page.goto(url, wait_until='networkidle', timeout=20000)
+                for url in urls:
+                    try:
+                        print(f"  🔗 {url[:60]}...")
+                        page.goto(url, wait_until='networkidle', timeout=20000)
 
-                for page_num in range(1, max_pages + 1):
-                    html = page.content()
-                    soup = BeautifulSoup(html, 'html.parser')
+                        for page_num in range(1, max_pages + 1):
+                            html = page.content()
+                            soup = BeautifulSoup(html, 'html.parser')
 
-                    ads = self._find_ads(soup)
-                    if not ads:
-                        break
-
-                    print(f"    📄 Page {page_num}: {len(ads)} annonces")
-
-                    for ad in ads[:15]:
-                        listing = self._extract_listing(ad, ville)
-                        if listing:
-                            listings.append(listing)
-
-                    # Page suivante
-                    if page_num < max_pages:
-                        try:
-                            next_btn = page.query_selector('a.next, a[rel="next"], .pagination-next, a:has-text("Suivant")')
-                            if next_btn:
-                                next_btn.click()
-                                page.wait_for_load_state('networkidle', timeout=10000)
-                                self._wait()
-                            else:
+                            ads = self._find_ads(soup)
+                            if not ads:
                                 break
-                        except:
+
+                            print(f"    📄 Page {page_num}: {len(ads)} annonces")
+
+                            for ad in ads[:15]:
+                                listing = self._extract_listing(ad, location)
+                                if listing:
+                                    listings.append(listing)
+
+                            if page_num < max_pages:
+                                try:
+                                    next_btn = page.query_selector('a.next, a[rel="next"], a:has-text("Suivant")')
+                                    if next_btn:
+                                        next_btn.click()
+                                        page.wait_for_load_state('networkidle', timeout=10000)
+                                        self._wait()
+                                    else:
+                                        break
+                                except:
+                                    break
+
+                        if listings:
                             break
+
+                    except:
+                        continue
 
                 browser.close()
 
@@ -94,8 +102,7 @@ class MoteurImmoScraper(BaseScraper):
 
         return listings
 
-    def _scrape_html(self, ville: str, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec requests"""
+    def _scrape_html(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
         listings = []
 
         session = requests.Session()
@@ -105,42 +112,56 @@ class MoteurImmoScraper(BaseScraper):
             'Accept-Language': 'fr-FR,fr;q=0.9',
         })
 
-        ville_slug = self._slugify(ville)
+        urls = self._build_urls(location)
 
-        for page_num in range(1, max_pages + 1):
-            try:
-                url = f"https://www.moteurimmo.fr/recherche/achat/{ville_slug}?page={page_num}&particulier=1"
-                print(f"  📄 Page {page_num}: {url[:60]}...")
+        for base_url in urls:
+            for page_num in range(1, max_pages + 1):
+                try:
+                    url = f"{base_url}&page={page_num}" if '?' in base_url else f"{base_url}?page={page_num}"
+                    print(f"  📄 Page {page_num}: {url[:60]}...")
 
-                response = session.get(url, timeout=15)
-                if response.status_code != 200:
-                    print(f"    ⚠️ Status {response.status_code}")
+                    response = session.get(url, timeout=15)
+                    if response.status_code != 200:
+                        break
+
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    ads = self._find_ads(soup)
+
+                    if not ads:
+                        break
+
+                    print(f"    📋 {len(ads)} annonces")
+
+                    for ad in ads[:15]:
+                        listing = self._extract_listing(ad, location)
+                        if listing:
+                            listings.append(listing)
+
+                    self._wait()
+
+                except Exception as e:
+                    print(f"    ⚠️ Erreur: {e}")
                     break
 
-                soup = BeautifulSoup(response.content, 'html.parser')
-                ads = self._find_ads(soup)
-
-                if not ads:
-                    print(f"    ⚠️ Aucune annonce")
-                    break
-
-                print(f"    📋 {len(ads)} annonces")
-
-                for ad in ads[:15]:
-                    listing = self._extract_listing(ad, ville)
-                    if listing:
-                        listings.append(listing)
-
-                self._wait()
-
-            except Exception as e:
-                print(f"    ⚠️ Erreur: {e}")
+            if listings:
                 break
 
         return listings
 
+    def _build_urls(self, location: dict) -> List[str]:
+        urls = []
+        slug = location['slug']
+        code_postal = location['code_postal']
+
+        # particulier=1 pour filtrer
+        if code_postal:
+            urls.append(f"https://www.moteurimmo.fr/recherche/achat/{code_postal}?particulier=1")
+
+        urls.append(f"https://www.moteurimmo.fr/recherche/achat/{slug}?particulier=1")
+
+        return urls
+
     def _find_ads(self, soup) -> list:
-        """Trouve les annonces"""
         selectors = [
             ('div', {'class': re.compile(r'annonce|listing|result-item', re.I)}),
             ('article', {'class': re.compile(r'listing|annonce', re.I)}),
@@ -152,14 +173,11 @@ class MoteurImmoScraper(BaseScraper):
             if ads:
                 return ads
 
-        # Fallback
         links = soup.find_all('a', href=re.compile(r'/annonce/'))
         return links if links else []
 
-    def _extract_listing(self, ad, ville: str) -> Dict[str, Any]:
-        """Extrait une annonce"""
+    def _extract_listing(self, ad, location: dict) -> Dict[str, Any]:
         try:
-            # Lien
             if ad.name == 'a':
                 lien = ad.get('href', '')
             else:
@@ -172,7 +190,6 @@ class MoteurImmoScraper(BaseScraper):
             if not lien.startswith('http'):
                 lien = f"https://www.moteurimmo.fr{lien}"
 
-            # Titre
             titre = None
             for tag in ['h2', 'h3', 'h4']:
                 elem = ad.find(tag)
@@ -183,27 +200,24 @@ class MoteurImmoScraper(BaseScraper):
             if not titre:
                 titre = ad.get_text(strip=True)[:80] or "Annonce MoteurImmo"
 
-            # Prix
             prix = 0
             prix_elem = ad.find(class_=re.compile(r'prix|price', re.I)) or ad.find(string=re.compile(r'[\d\s]+€'))
             if prix_elem:
                 text = prix_elem.get_text() if hasattr(prix_elem, 'get_text') else str(prix_elem)
                 prix = self._parse_price(text)
 
-            # Surface et pièces
+            # Localisation
             text = ad.get_text()
-            surface = None
-            pieces = None
+            localisation = location['ville']
+            if location['code_postal']:
+                localisation = f"{location['ville']} ({location['code_postal']})"
 
-            surface_match = re.search(r'(\d+)\s*m[²2]', text, re.I)
-            if surface_match:
-                surface = int(surface_match.group(1))
+            cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ\s-]+)', text)
+            if cp_match:
+                localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
 
-            pieces_match = re.search(r'(\d+)\s*pièces?|[TF](\d+)', text, re.I)
-            if pieces_match:
-                pieces = int(pieces_match.group(1) or pieces_match.group(2))
+            surface, pieces = self._extract_surface_pieces(text)
 
-            # Photo
             photos = []
             img = ad.find('img')
             if img:
@@ -217,7 +231,7 @@ class MoteurImmoScraper(BaseScraper):
                 'titre': titre,
                 'date_publication': datetime.now().strftime('%Y-%m-%d'),
                 'prix': prix,
-                'localisation': ville,
+                'localisation': localisation,
                 'lien': lien,
                 'site_source': self.site_name,
                 'photos': photos,
@@ -228,12 +242,3 @@ class MoteurImmoScraper(BaseScraper):
             }
         except:
             return None
-
-    def _slugify(self, text: str) -> str:
-        return text.lower().replace(' ', '-').replace("'", "-")
-
-    def _parse_price(self, text: str) -> int:
-        try:
-            return int(re.sub(r'[^\d]', '', str(text)))
-        except:
-            return 0

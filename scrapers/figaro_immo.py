@@ -6,7 +6,6 @@ import re
 import json
 from .base import BaseScraper
 
-# Import Playwright optionnel
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
     PLAYWRIGHT_AVAILABLE = True
@@ -22,23 +21,27 @@ class FigaroImmoScraper(BaseScraper):
         return "figaro-immo"
 
     def scrape(self, ville: str, rayon: int, max_pages: int = 5) -> List[Dict[str, Any]]:
-        print(f"🔍 Scraping {self.site_name} pour {ville} (rayon: {rayon}km)")
+        location = self.get_location_info(ville)
+        ville_name = location['ville']
+        code_postal = location['code_postal']
+
+        print(f"🔍 Scraping {self.site_name} pour {ville_name}", end="")
+        if code_postal:
+            print(f" ({code_postal})", end="")
+        print(f" - rayon: {rayon}km")
 
         listings = []
 
-        # Méthode 1: Playwright
         if PLAYWRIGHT_AVAILABLE:
-            listings = self._scrape_playwright(ville, max_pages)
+            listings = self._scrape_playwright(location, max_pages)
 
-        # Méthode 2: HTML
         if not listings:
-            listings = self._scrape_html(ville, max_pages)
+            listings = self._scrape_html(location, max_pages)
 
         self._print_stats(listings)
         return listings
 
-    def _scrape_playwright(self, ville: str, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec Playwright"""
+    def _scrape_playwright(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
         listings = []
 
         try:
@@ -53,12 +56,7 @@ class FigaroImmoScraper(BaseScraper):
                 )
                 page = context.new_page()
 
-                ville_slug = self._slugify(ville)
-
-                urls = [
-                    f"https://immobilier.lefigaro.fr/annonces/immobilier-vente-bien-{ville_slug}.html",
-                    f"https://www.explorimmo.com/resultat/vente/{ville_slug}",
-                ]
+                urls = self._build_urls(location)
 
                 for url in urls:
                     try:
@@ -76,14 +74,13 @@ class FigaroImmoScraper(BaseScraper):
                             print(f"    📄 Page {page_num}: {len(ads)} annonces")
 
                             for ad in ads[:15]:
-                                listing = self._extract_listing(ad, ville)
+                                listing = self._extract_listing(ad, location)
                                 if listing:
                                     listings.append(listing)
 
-                            # Page suivante
                             if page_num < max_pages:
                                 try:
-                                    next_btn = page.query_selector('a.next, a[rel="next"], .pagination-next')
+                                    next_btn = page.query_selector('a.next, a[rel="next"]')
                                     if next_btn:
                                         next_btn.click()
                                         page.wait_for_load_state('networkidle', timeout=10000)
@@ -96,10 +93,7 @@ class FigaroImmoScraper(BaseScraper):
                         if listings:
                             break
 
-                    except PlaywrightTimeout:
-                        continue
-                    except Exception as e:
-                        print(f"    ⚠️ Erreur: {str(e)[:40]}")
+                    except:
                         continue
 
                 browser.close()
@@ -109,8 +103,7 @@ class FigaroImmoScraper(BaseScraper):
 
         return listings
 
-    def _scrape_html(self, ville: str, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec requests"""
+    def _scrape_html(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
         listings = []
 
         session = requests.Session()
@@ -120,13 +113,7 @@ class FigaroImmoScraper(BaseScraper):
             'Accept-Language': 'fr-FR,fr;q=0.9',
         })
 
-        ville_slug = self._slugify(ville)
-
-        urls = [
-            f"https://immobilier.lefigaro.fr/annonces/immobilier-vente-bien-{ville_slug}.html",
-            f"https://www.explorimmo.com/resultat/vente/{ville_slug}",
-            f"https://immobilier.lefigaro.fr/annonces/annonce-vente-{ville_slug}.html",
-        ]
+        urls = self._build_urls(location)
 
         for base_url in urls:
             print(f"  📄 {base_url[:50]}...")
@@ -136,18 +123,12 @@ class FigaroImmoScraper(BaseScraper):
 
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.content, 'html.parser')
-
-                    # Debug
-                    title = soup.find('title')
-                    if title:
-                        print(f"    📄 Page: {title.get_text()[:50]}")
-
                     ads = self._find_ads(soup)
 
                     if ads:
                         print(f"    📋 {len(ads)} annonces")
                         for ad in ads[:20]:
-                            listing = self._extract_listing(ad, ville)
+                            listing = self._extract_listing(ad, location)
                             if listing:
                                 listings.append(listing)
                         break
@@ -158,14 +139,23 @@ class FigaroImmoScraper(BaseScraper):
                 print(f"    ⚠️ Erreur: {e}")
                 continue
 
-        # Essayer JSON-LD
-        if not listings:
-            listings = self._try_json_data(session, ville)
-
         return listings
 
+    def _build_urls(self, location: dict) -> List[str]:
+        urls = []
+        slug = location['slug']
+        code_postal = location['code_postal']
+
+        urls.append(f"https://immobilier.lefigaro.fr/annonces/immobilier-vente-bien-{slug}.html")
+
+        if code_postal:
+            urls.append(f"https://immobilier.lefigaro.fr/annonces/immobilier-vente-bien-{code_postal}.html")
+
+        urls.append(f"https://www.explorimmo.com/resultat/vente/{slug}")
+
+        return urls
+
     def _find_ads(self, soup) -> list:
-        """Trouve les annonces"""
         selectors = [
             ('article', {}),
             ('div', {'class': re.compile(r'classified-card|annonce-item|listing-item|card', re.I)}),
@@ -184,57 +174,7 @@ class FigaroImmoScraper(BaseScraper):
 
         return []
 
-    def _try_json_data(self, session, ville: str) -> List[Dict[str, Any]]:
-        """Essaie JSON-LD"""
-        listings = []
-
-        try:
-            print("  🔄 Recherche JSON-LD...")
-            url = f"https://immobilier.lefigaro.fr/annonces/immobilier-vente-bien-{ville.lower()}.html"
-            response = session.get(url, timeout=15)
-
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.content, 'html.parser')
-                scripts = soup.find_all('script', type='application/ld+json')
-
-                for script in scripts:
-                    try:
-                        data = json.loads(script.string)
-                        if isinstance(data, list):
-                            for item in data:
-                                if item.get('@type') == 'Product' or 'offer' in str(item).lower():
-                                    listing = self._parse_json_ld(item, ville)
-                                    if listing:
-                                        listings.append(listing)
-                    except:
-                        pass
-
-        except Exception as e:
-            print(f"    ⚠️ JSON-LD: {e}")
-
-        return listings
-
-    def _parse_json_ld(self, data: dict, ville: str) -> Dict[str, Any]:
-        """Parse JSON-LD"""
-        try:
-            return {
-                'titre': data.get('name', 'Annonce Figaro'),
-                'date_publication': datetime.now().strftime('%Y-%m-%d'),
-                'prix': int(data.get('offers', {}).get('price', 0)),
-                'localisation': ville,
-                'lien': data.get('url', ''),
-                'site_source': self.site_name,
-                'photos': [data.get('image', '')] if data.get('image') else [],
-                'telephone': None,
-                'surface': None,
-                'pieces': None,
-                'description': ''
-            }
-        except:
-            return None
-
-    def _extract_listing(self, ad, ville: str) -> Dict[str, Any]:
-        """Extrait une annonce"""
+    def _extract_listing(self, ad, location: dict) -> Dict[str, Any]:
         try:
             link_elem = ad.find('a', href=True)
             if not link_elem:
@@ -244,7 +184,6 @@ class FigaroImmoScraper(BaseScraper):
             if lien and not lien.startswith('http'):
                 lien = f"https://immobilier.lefigaro.fr{lien}"
 
-            # Titre
             titre = None
             for tag in ['h2', 'h3', 'h4']:
                 titre_elem = ad.find(tag)
@@ -255,7 +194,6 @@ class FigaroImmoScraper(BaseScraper):
             if not titre:
                 titre = link_elem.get_text(strip=True)[:100] or "Annonce Figaro"
 
-            # Prix
             prix = 0
             prix_elem = ad.find(string=re.compile(r'[\d\s]+€'))
             if prix_elem:
@@ -268,7 +206,16 @@ class FigaroImmoScraper(BaseScraper):
                         if prix > 10000:
                             break
 
-            # Photo
+            # Localisation
+            text = ad.get_text()
+            localisation = location['ville']
+            if location['code_postal']:
+                localisation = f"{location['ville']} ({location['code_postal']})"
+
+            cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ\s-]+)', text)
+            if cp_match:
+                localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
+
             photos = []
             img = ad.find('img')
             if img:
@@ -276,15 +223,13 @@ class FigaroImmoScraper(BaseScraper):
                 if src and not src.startswith('data:'):
                     photos.append(src)
 
-            # Surface et pièces
-            text = titre + " " + ad.get_text()
-            surface, pieces = self._extract_surface_pieces(text)
+            surface, pieces = self._extract_surface_pieces(titre + " " + text)
 
             return {
                 'titre': titre,
                 'date_publication': datetime.now().strftime('%Y-%m-%d'),
                 'prix': prix,
-                'localisation': ville,
+                'localisation': localisation,
                 'lien': lien,
                 'site_source': self.site_name,
                 'photos': photos,
@@ -295,26 +240,3 @@ class FigaroImmoScraper(BaseScraper):
             }
         except:
             return None
-
-    def _slugify(self, text: str) -> str:
-        return text.lower().replace(' ', '-').replace("'", "-")
-
-    def _parse_price(self, text: str) -> int:
-        try:
-            return int(re.sub(r'[^\d]', '', str(text)))
-        except:
-            return 0
-
-    def _extract_surface_pieces(self, text: str):
-        surface = None
-        pieces = None
-
-        surface_match = re.search(r'(\d+)\s*m[²2]', text, re.I)
-        if surface_match:
-            surface = int(surface_match.group(1))
-
-        pieces_match = re.search(r'(\d+)\s*pièces?|[TF](\d+)', text, re.I)
-        if pieces_match:
-            pieces = int(pieces_match.group(1) or pieces_match.group(2))
-
-        return surface, pieces

@@ -6,7 +6,6 @@ import re
 import json
 from .base import BaseScraper
 
-# Import Playwright optionnel
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
     PLAYWRIGHT_AVAILABLE = True
@@ -22,22 +21,30 @@ class PapScraper(BaseScraper):
         return "pap.fr"
 
     def scrape(self, ville: str, rayon: int, max_pages: int = 5) -> List[Dict[str, Any]]:
-        print(f"🔍 Scraping {self.site_name} pour {ville} (rayon: {rayon}km)")
+        # Obtenir les infos de géolocalisation
+        location = self.get_location_info(ville)
+        ville_name = location['ville']
+        code_postal = location['code_postal']
+
+        print(f"🔍 Scraping {self.site_name} pour {ville_name}", end="")
+        if code_postal:
+            print(f" ({code_postal})", end="")
+        print(f" - rayon: {rayon}km")
 
         listings = []
 
-        # Méthode 1: Playwright (si disponible)
+        # Méthode 1: Playwright
         if PLAYWRIGHT_AVAILABLE:
-            listings = self._scrape_playwright(ville, max_pages)
+            listings = self._scrape_playwright(location, max_pages)
 
         # Méthode 2: Requests/BeautifulSoup
         if not listings:
-            listings = self._scrape_html(ville, max_pages)
+            listings = self._scrape_html(location, max_pages)
 
         self._print_stats(listings)
         return listings
 
-    def _scrape_playwright(self, ville: str, max_pages: int) -> List[Dict[str, Any]]:
+    def _scrape_playwright(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
         """Scrape avec Playwright"""
         listings = []
 
@@ -53,21 +60,15 @@ class PapScraper(BaseScraper):
                 )
                 page = context.new_page()
 
-                ville_slug = self._slugify(ville)
-
-                # URLs PAP
-                urls = [
-                    f"https://www.pap.fr/annonce/vente-immobilier-{ville_slug}",
-                    f"https://www.pap.fr/annonces/vente-{ville_slug}",
-                    f"https://www.pap.fr/annonce/vente-appartement-maison-{ville_slug}",
-                ]
+                # PAP utilise des URLs avec le nom de ville slugifié
+                # Mais supporte aussi les codes postaux
+                urls = self._build_urls(location)
 
                 for url in urls:
                     try:
-                        print(f"  🔗 {url[:50]}...")
+                        print(f"  🔗 {url[:60]}...")
                         page.goto(url, wait_until='networkidle', timeout=20000)
 
-                        # Scraper plusieurs pages
                         for page_num in range(1, max_pages + 1):
                             html = page.content()
                             soup = BeautifulSoup(html, 'html.parser')
@@ -79,7 +80,7 @@ class PapScraper(BaseScraper):
                             print(f"    📄 Page {page_num}: {len(ads)} annonces")
 
                             for ad in ads[:15]:
-                                listing = self._extract_listing(ad, ville)
+                                listing = self._extract_listing(ad, location['ville'])
                                 if listing:
                                     listings.append(listing)
 
@@ -100,7 +101,6 @@ class PapScraper(BaseScraper):
                             break
 
                     except PlaywrightTimeout:
-                        print(f"    ⏱️ Timeout")
                         continue
                     except Exception as e:
                         print(f"    ⚠️ Erreur: {str(e)[:40]}")
@@ -113,7 +113,7 @@ class PapScraper(BaseScraper):
 
         return listings
 
-    def _scrape_html(self, ville: str, max_pages: int) -> List[Dict[str, Any]]:
+    def _scrape_html(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
         """Scrape avec requests/BeautifulSoup"""
         listings = []
 
@@ -122,20 +122,12 @@ class PapScraper(BaseScraper):
             'User-Agent': self.user_agent,
             'Accept': 'text/html,application/xhtml+xml',
             'Accept-Language': 'fr-FR,fr;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
         })
 
-        ville_slug = self._slugify(ville)
+        urls = self._build_urls(location)
 
-        # URLs à essayer
-        base_urls = [
-            f"https://www.pap.fr/annonce/vente-immobilier-{ville_slug}",
-            f"https://www.pap.fr/annonces/vente-{ville_slug}",
-            f"https://www.pap.fr/annonce/vente-appartement-maison-{ville_slug}",
-        ]
-
-        for base_url in base_urls:
-            print(f"  📄 Mode HTML: {base_url[:50]}...")
+        for base_url in urls:
+            print(f"  📄 {base_url[:60]}...")
 
             for page_num in range(1, max_pages + 1):
                 try:
@@ -144,7 +136,6 @@ class PapScraper(BaseScraper):
                     response = session.get(url, timeout=15)
 
                     if response.status_code != 200:
-                        print(f"    ⚠️ Status {response.status_code}")
                         break
 
                     soup = BeautifulSoup(response.content, 'html.parser')
@@ -154,12 +145,12 @@ class PapScraper(BaseScraper):
                         if page_num == 1:
                             break  # Essayer URL suivante
                         else:
-                            break  # Plus de pages
+                            break
 
                     print(f"    📄 Page {page_num}: {len(ads)} annonces")
 
                     for ad in ads[:15]:
-                        listing = self._extract_listing(ad, ville)
+                        listing = self._extract_listing(ad, location['ville'])
                         if listing:
                             listings.append(listing)
 
@@ -174,28 +165,47 @@ class PapScraper(BaseScraper):
 
         return listings
 
+    def _build_urls(self, location: dict) -> List[str]:
+        """Construit les URLs de recherche PAP"""
+        urls = []
+        slug = location['slug']
+        code_postal = location['code_postal']
+        departement = location['departement']
+
+        # URL avec slug de ville
+        urls.append(f"https://www.pap.fr/annonce/vente-immobilier-{slug}")
+
+        # URL avec code postal si disponible
+        if code_postal:
+            urls.append(f"https://www.pap.fr/annonce/vente-immobilier-{code_postal}")
+
+        # URL avec département
+        if departement:
+            urls.append(f"https://www.pap.fr/annonce/vente-immobilier-departement-{departement}")
+
+        # Autres formats
+        urls.append(f"https://www.pap.fr/annonces/vente-{slug}")
+        urls.append(f"https://www.pap.fr/annonce/vente-appartement-maison-{slug}")
+
+        return urls
+
     def _find_ads(self, soup) -> list:
         """Trouve les annonces"""
-        # Sélecteurs PAP
         selectors = [
             ('div', {'class': re.compile(r'search-list-item|item-listing|annonce-row', re.I)}),
             ('article', {'class': re.compile(r'annonce', re.I)}),
             ('div', {'class': 'annonce'}),
-            ('div', {'class': 'box-annonce'}),
             ('li', {'class': re.compile(r'annonce|listing', re.I)}),
         ]
 
         for tag, attrs in selectors:
             ads = soup.find_all(tag, attrs)
-            if ads and len(ads) > 0:
+            if ads:
                 return ads
 
-        # Fallback: liens d'annonces
+        # Fallback
         links = soup.find_all('a', href=re.compile(r'/annonces/[a-z]+-[0-9]+'))
-        if links:
-            return links
-
-        return []
+        return links if links else []
 
     def _extract_listing(self, ad, ville: str) -> Dict[str, Any]:
         """Extrait une annonce"""
@@ -237,13 +247,20 @@ class PapScraper(BaseScraper):
                 if prix_match:
                     prix = self._parse_price(prix_match.group(1))
 
-            # Localisation
+            # Localisation - extraire du texte
             localisation = ville
-            for selector in ['.item-location', '.location', '.ville', '.lieu']:
-                elem = ad.select_one(selector)
-                if elem:
-                    localisation = elem.get_text(strip=True)
-                    break
+            text = ad.get_text()
+
+            # Chercher code postal dans le texte
+            cp_match = re.search(r'(\d{5})\s+([A-Za-zÀ-ÿ\s-]+)', text)
+            if cp_match:
+                localisation = f"{cp_match.group(2).strip()} ({cp_match.group(1)})"
+            else:
+                for selector in ['.item-location', '.location', '.ville', '.lieu']:
+                    elem = ad.select_one(selector)
+                    if elem:
+                        localisation = elem.get_text(strip=True)
+                        break
 
             # Photo
             photos = []
@@ -254,17 +271,7 @@ class PapScraper(BaseScraper):
                     photos.append(src)
 
             # Surface et pièces
-            text = ad.get_text()
-            surface = None
-            pieces = None
-
-            surface_match = re.search(r'(\d+)\s*m[²2]', text, re.I)
-            if surface_match:
-                surface = int(surface_match.group(1))
-
-            pieces_match = re.search(r'(\d+)\s*pièces?|[TF](\d+)', text, re.I)
-            if pieces_match:
-                pieces = int(pieces_match.group(1) or pieces_match.group(2))
+            surface, pieces = self._extract_surface_pieces(text)
 
             return {
                 'titre': titre,
@@ -281,13 +288,3 @@ class PapScraper(BaseScraper):
             }
         except:
             return None
-
-    def _slugify(self, text: str) -> str:
-        """Convertit en slug URL"""
-        return text.lower().replace(' ', '-').replace("'", "-").replace('é', 'e').replace('è', 'e').replace('ê', 'e').replace('à', 'a').replace('ù', 'u').replace('ô', 'o').replace('î', 'i')
-
-    def _parse_price(self, text: str) -> int:
-        try:
-            return int(re.sub(r'[^\d]', '', str(text)))
-        except:
-            return 0
