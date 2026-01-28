@@ -1,43 +1,53 @@
+"""
+Gestionnaire de base de données Supabase via API REST.
+"""
 from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 import hashlib
 import os
 import requests
 
 
 class DatabaseManager:
-    """Gestionnaire de base de données Supabase via API REST directe."""
+    """Gestionnaire Supabase via API REST directe."""
 
     def __init__(self):
-        """Initialise la connexion Supabase."""
-        self.connection_error = None
-        self.supabase_url_found = False
-        self.supabase_key_found = False
-        self.client = None  # Pour compatibilité avec le code existant
-
         self.base_url = os.getenv('SUPABASE_URL')
         self.api_key = os.getenv('SUPABASE_KEY')
+        self.connected = False
+        self.connection_error = None
 
-        self.supabase_url_found = bool(self.base_url)
-        self.supabase_key_found = bool(self.api_key)
-
-        print(f"[DB] SUPABASE_URL exists: {self.supabase_url_found}", flush=True)
-        print(f"[DB] SUPABASE_KEY exists: {self.supabase_key_found}", flush=True)
+        print(f"[DB] Initialisation...", flush=True)
+        print(f"[DB] SUPABASE_URL: {'OK' if self.base_url else 'MANQUANT'}", flush=True)
+        print(f"[DB] SUPABASE_KEY: {'OK' if self.api_key else 'MANQUANT'}", flush=True)
 
         if self.base_url and self.api_key:
-            # Test de connexion
             try:
-                self._request('GET', 'users', params={'select': 'id', 'limit': '1'})
-                self.client = self  # Permet db.client.table() de fonctionner
-                print("✅ Connexion Supabase établie", flush=True)
+                # Test de connexion
+                self._api_request('GET', 'users', {'select': 'id', 'limit': '1'})
+                self.connected = True
+                print("✅ Connexion Supabase OK", flush=True)
             except Exception as e:
                 self.connection_error = str(e)
-                print(f"⚠️ Erreur connexion Supabase: {e}", flush=True)
+                print(f"❌ Erreur Supabase: {e}", flush=True)
         else:
-            self.connection_error = "SUPABASE_URL et/ou SUPABASE_KEY non définis"
-            print(f"⚠️ {self.connection_error} - mode démo", flush=True)
+            self.connection_error = "Variables SUPABASE_URL/KEY manquantes"
+            print(f"❌ {self.connection_error}", flush=True)
 
-    def _request(self, method: str, table: str, data: dict = None, params: dict = None) -> dict:
+    @property
+    def client(self):
+        """Retourne self si connecté, None sinon (compatibilité)."""
+        return self if self.connected else None
+
+    @property
+    def supabase_url_found(self):
+        return bool(self.base_url)
+
+    @property
+    def supabase_key_found(self):
+        return bool(self.api_key)
+
+    def _api_request(self, method: str, table: str, params: dict = None, data: dict = None):
         """Effectue une requête à l'API REST Supabase."""
         url = f"{self.base_url}/rest/v1/{table}"
 
@@ -52,55 +62,47 @@ class DatabaseManager:
             method=method,
             url=url,
             headers=headers,
-            json=data,
             params=params,
+            json=data,
             timeout=30
         )
 
         if response.status_code >= 400:
-            raise Exception(f"API Error {response.status_code}: {response.text}")
+            raise Exception(f"Supabase {response.status_code}: {response.text[:200]}")
 
         if response.text:
             return response.json()
-        return {}
+        return []
 
     def table(self, name: str):
-        """Retourne un objet pour construire des requêtes (compatibilité)."""
-        return TableQuery(self, name)
+        """Crée une requête pour une table."""
+        return Query(self, name)
 
-    def insert_listings(self, user_id: str, listings: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Insère de nouvelles annonces en base avec déduplication."""
-        if not listings:
+    # ============ Méthodes directes pour les listings ============
+
+    def insert_listings(self, user_id: str, listings: List[Dict]) -> Dict:
+        """Insère des annonces avec déduplication."""
+        if not self.connected or not listings:
             return {"added": 0, "duplicates": 0}
-
-        if not self.client:
-            return {"added": 0, "duplicates": 0, "demo": True}
 
         added = 0
         duplicates = 0
 
         for listing in listings:
             try:
-                listing_hash = self._generate_hash(listing)
-
-                # Vérifier si existe
-                existing = self._request('GET', 'listings', params={
+                # Vérifier si existe déjà
+                existing = self._api_request('GET', 'listings', {
                     'select': 'id',
                     'user_id': f'eq.{user_id}',
                     'url': f"eq.{listing['lien']}"
                 })
 
                 if existing:
-                    # Update last_seen_at
-                    self._request('PATCH', 'listings',
-                        data={'last_seen_at': datetime.now().isoformat()},
-                        params={'id': f"eq.{existing[0]['id']}"})
                     duplicates += 1
                 else:
-                    # Insert
-                    self._request('POST', 'listings', data={
+                    self._api_request('POST', 'listings', data={
                         'user_id': user_id,
-                        'hash': listing_hash,
+                        'hash': hashlib.md5(f"{listing['titre']}_{listing['prix']}".encode()).hexdigest(),
                         'title': listing['titre'],
                         'price': listing['prix'],
                         'location': listing['localisation'],
@@ -110,113 +112,103 @@ class DatabaseManager:
                         'phone': listing.get('telephone'),
                         'surface': listing.get('surface'),
                         'rooms': listing.get('pieces'),
-                        'description': listing.get('description'),
+                        'description': listing.get('description', ''),
                         'status': 'Nouveau',
                         'published_date': listing.get('date_publication'),
                         'created_at': datetime.now().isoformat(),
                         'last_seen_at': datetime.now().isoformat()
                     })
                     added += 1
-
             except Exception as e:
-                print(f"⚠️ Erreur insertion: {e}")
-                continue
+                print(f"⚠️ Erreur insertion: {e}", flush=True)
 
-        print(f"✅ {added} annonces ajoutées, {duplicates} doublons")
+        print(f"✅ {added} ajoutées, {duplicates} doublons", flush=True)
         return {"added": added, "duplicates": duplicates}
 
     def update_listing_status(self, listing_id: str, user_id: str, status: str) -> bool:
         """Met à jour le statut d'une annonce."""
-        if not self.client:
+        if not self.connected:
             return False
-
         try:
-            self._request('PATCH', 'listings',
-                data={'status': status, 'updated_at': datetime.now().isoformat()},
-                params={'id': f'eq.{listing_id}', 'user_id': f'eq.{user_id}'})
+            self._api_request('PATCH', 'listings',
+                params={'id': f'eq.{listing_id}', 'user_id': f'eq.{user_id}'},
+                data={'status': status, 'updated_at': datetime.now().isoformat()})
             return True
         except Exception as e:
-            print(f"⚠️ Erreur update: {e}")
+            print(f"⚠️ Erreur update: {e}", flush=True)
             return False
 
     def delete_listing(self, listing_id: str, user_id: str) -> bool:
         """Supprime une annonce."""
-        if not self.client:
+        if not self.connected:
             return False
-
         try:
-            self._request('DELETE', 'listings',
+            self._api_request('DELETE', 'listings',
                 params={'id': f'eq.{listing_id}', 'user_id': f'eq.{user_id}'})
             return True
         except Exception as e:
-            print(f"⚠️ Erreur delete: {e}")
+            print(f"⚠️ Erreur delete: {e}", flush=True)
             return False
 
-    def _generate_hash(self, listing: Dict[str, Any]) -> str:
-        """Génère un hash unique."""
-        signature = f"{listing['titre']}_{listing['prix']}_{listing['localisation']}"
-        return hashlib.md5(signature.encode()).hexdigest()
 
-
-class TableQuery:
-    """Helper pour construire des requêtes compatibles avec l'ancien code."""
+class Query:
+    """Constructeur de requêtes chainable."""
 
     def __init__(self, db: DatabaseManager, table: str):
         self.db = db
-        self.table = table
-        self.params = {'select': '*'}
-        self._insert_data = None
-        self._update_data = None
-        self._delete_flag = False
+        self._table = table
+        self._params = {}
+        self._data = None
+        self._method = 'GET'
 
     def select(self, columns: str = '*', count: str = None):
-        self.params['select'] = columns
-        if count:
-            self.params['count'] = count
+        self._params['select'] = columns
+        self._method = 'GET'
         return self
 
-    def eq(self, column: str, value: Any):
-        self.params[column] = f'eq.{value}'
-        return self
-
-    def lt(self, column: str, value: Any):
-        self.params[column] = f'lt.{value}'
+    def eq(self, column: str, value):
+        self._params[column] = f'eq.{value}'
         return self
 
     def order(self, column: str, desc: bool = False):
         direction = 'desc' if desc else 'asc'
-        self.params['order'] = f'{column}.{direction}'
+        self._params['order'] = f'{column}.{direction}'
         return self
 
     def insert(self, data: dict):
-        self._insert_data = data
+        self._data = data
+        self._method = 'POST'
         return self
 
     def update(self, data: dict):
-        self._update_data = data
+        self._data = data
+        self._method = 'PATCH'
         return self
 
     def delete(self):
-        self._delete_flag = True
+        self._method = 'DELETE'
         return self
 
     def execute(self):
-        """Exécute la requête (GET, POST, PATCH ou DELETE)."""
-        if self._insert_data:
-            result = self.db._request('POST', self.table, data=self._insert_data)
-            return QueryResult(result if isinstance(result, list) else [result] if result else [])
-        elif self._update_data:
-            result = self.db._request('PATCH', self.table, data=self._update_data, params=self.params)
-            return QueryResult(result if isinstance(result, list) else [result] if result else [])
-        elif self._delete_flag:
-            result = self.db._request('DELETE', self.table, params=self.params)
-            return QueryResult(result if isinstance(result, list) else [result] if result else [])
+        """Exécute la requête."""
+        result = self.db._api_request(
+            self._method,
+            self._table,
+            params=self._params if self._params else None,
+            data=self._data
+        )
+
+        # Normaliser le résultat
+        if isinstance(result, list):
+            return Result(result)
+        elif isinstance(result, dict):
+            return Result([result])
         else:
-            result = self.db._request('GET', self.table, params=self.params)
-            return QueryResult(result if isinstance(result, list) else [result] if result else [])
+            return Result([])
 
 
-class QueryResult:
+class Result:
     """Résultat d'une requête."""
-    def __init__(self, data):
-        self.data = data if isinstance(data, list) else [data] if data else []
+
+    def __init__(self, data: list):
+        self.data = data if data else []

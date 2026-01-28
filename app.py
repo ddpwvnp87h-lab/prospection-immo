@@ -31,7 +31,7 @@ db = DatabaseManager()
 
 def is_db_connected():
     """Vérifie si la connexion Supabase est active"""
-    return db.client is not None
+    return db.connected
 
 # ============================================================================
 # SCRAPING STATUS TRACKER
@@ -139,21 +139,17 @@ def debug_page():
     if db.connection_error:
         html += f'<p class="error">❌ Erreur de connexion: {db.connection_error}</p>'
 
-    if db.client is not None:
+    if db.connected:
         html += '<p class="ok">✅ Connecté à Supabase</p>'
-        # Test une requête simple
         try:
-            result = db.client.table('users').select('id').execute()
-            html += f'<p class="ok">✅ Test requête OK</p>'
+            result = db.table('users').select('id').execute()
+            html += f'<p class="ok">✅ Test requête OK ({len(result.data)} users)</p>'
         except Exception as e:
             html += f'<p class="error">❌ Erreur requête: {str(e)[:100]}</p>'
     else:
-        html += '<p class="error">❌ db.client est None - Pas de connexion</p>'
-        html += '<p class="warning">Le problème est probablement:</p>'
-        html += '<ul>'
-        html += '<li>Les variables ne sont pas chargées au démarrage</li>'
-        html += '<li>Une erreur s\'est produite lors de create_client()</li>'
-        html += '</ul>'
+        html += '<p class="error">❌ Non connecté à Supabase</p>'
+        if db.connection_error:
+            html += f'<p class="warning">Erreur: {db.connection_error}</p>'
     html += '</div>'
 
     # Show all environment variables (filtered)
@@ -193,6 +189,11 @@ def login_required(f):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Page de connexion"""
+    # Vérifier la connexion DB
+    if not is_db_connected():
+        flash('Base de données non configurée. Contactez l\'administrateur.', 'error')
+        return render_template('login.html', db_error=True)
+
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
@@ -201,21 +202,11 @@ def login():
             flash('Email et mot de passe requis', 'error')
             return render_template('login.html')
 
-        # Mode démo si pas de Supabase
-        if not is_db_connected():
-            # Mode démo: accepte n'importe quel login
-            session['user_id'] = 'demo-user'
-            session['email'] = email
-            flash('Mode démo (pas de base de données)', 'warning')
-            return redirect(url_for('dashboard'))
-
-        # Vérifier les credentials
         try:
-            result = db.client.table('users').select('*').eq('email', email).execute()
+            result = db.table('users').select('*').eq('email', email).execute()
 
             if result.data:
                 user = result.data[0]
-                # Hash le password pour comparer
                 password_hash = hashlib.sha256(password.encode()).hexdigest()
 
                 if user['password_hash'] == password_hash:
@@ -228,13 +219,18 @@ def login():
             else:
                 flash('Utilisateur introuvable', 'error')
         except Exception as e:
-            flash(f'Erreur de connexion: {e}', 'error')
+            flash(f'Erreur: {e}', 'error')
 
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """Page d'inscription"""
+    # Vérifier la connexion DB
+    if not is_db_connected():
+        flash('Base de données non configurée. Contactez l\'administrateur.', 'error')
+        return render_template('register.html', db_error=True)
+
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
@@ -248,23 +244,12 @@ def register():
             flash('Les mots de passe ne correspondent pas', 'error')
             return render_template('register.html')
 
-        # Mode démo si pas de Supabase
-        if not is_db_connected():
-            session['user_id'] = 'demo-user'
-            session['email'] = email
-            flash('Mode démo (pas de base de données)', 'warning')
-            return redirect(url_for('dashboard'))
-
-        # Créer le compte
         try:
             password_hash = hashlib.sha256(password.encode()).hexdigest()
-
-            user_data = {
+            result = db.table('users').insert({
                 'email': email,
                 'password_hash': password_hash
-            }
-
-            result = db.client.table('users').insert(user_data).execute()
+            }).execute()
 
             if result.data:
                 user = result.data[0]
@@ -272,11 +257,13 @@ def register():
                 session['email'] = user['email']
                 flash('Compte créé avec succès!', 'success')
                 return redirect(url_for('dashboard'))
+            else:
+                flash('Erreur lors de la création du compte', 'error')
         except Exception as e:
-            if 'duplicate key' in str(e).lower() or 'unique' in str(e).lower():
+            if 'duplicate' in str(e).lower() or 'unique' in str(e).lower():
                 flash('Cet email est déjà utilisé', 'error')
             else:
-                flash(f'Erreur lors de la création du compte: {e}', 'error')
+                flash(f'Erreur: {e}', 'error')
 
     return render_template('register.html')
 
@@ -303,41 +290,34 @@ def dashboard():
     sort_by = request.args.get('sort', 'created_at')
     sort_order = request.args.get('order', 'desc')
 
-    # Mode démo si pas de Supabase
     if not is_db_connected():
-        flash('Base de données non configurée. Configurez SUPABASE_URL et SUPABASE_KEY.', 'warning')
+        flash('Base de données non configurée.', 'error')
         return render_template('dashboard.html', listings=[], stats={'total': 0, 'nouveau': 0, 'interesse': 0, 'pas_interesse': 0, 'visite': 0})
 
-    # Récupérer les annonces
     try:
-        query = db.client.table('listings').select('*').eq('user_id', user_id)
+        query = db.table('listings').select('*').eq('user_id', user_id)
 
-        # Appliquer filtre de statut
         if status_filter:
             query = query.eq('status', status_filter)
 
-        # Appliquer tri
         query = query.order(sort_by, desc=(sort_order == 'desc'))
-
         result = query.execute()
         listings = result.data
 
-        # Filtrer par recherche (côté client pour simplifier)
         if search_query:
             search_lower = search_query.lower()
-            listings = [
-                l for l in listings
-                if search_lower in l['title'].lower()
-                or search_lower in l['location'].lower()
-            ]
+            listings = [l for l in listings if search_lower in l.get('title', '').lower() or search_lower in l.get('location', '').lower()]
 
-        # Statistiques
+        # Statistiques basées sur toutes les annonces (pas filtrées)
+        all_result = db.table('listings').select('status').eq('user_id', user_id).execute()
+        all_listings = all_result.data
+
         stats = {
-            'total': len(listings),
-            'nouveau': len([l for l in listings if l['status'] == 'Nouveau']),
-            'interesse': len([l for l in listings if l['status'] == 'Intéressé']),
-            'pas_interesse': len([l for l in listings if l['status'] == 'Pas intéressé']),
-            'visite': len([l for l in listings if l['status'] == 'Visité']),
+            'total': len(all_listings),
+            'nouveau': len([l for l in all_listings if l.get('status') == 'Nouveau']),
+            'interesse': len([l for l in all_listings if l.get('status') == 'Intéressé']),
+            'pas_interesse': len([l for l in all_listings if l.get('status') == 'Pas intéressé']),
+            'visite': len([l for l in all_listings if l.get('status') == 'Visité']),
         }
 
         return render_template('dashboard.html',
@@ -348,8 +328,8 @@ def dashboard():
                              sort_by=sort_by,
                              sort_order=sort_order)
     except Exception as e:
-        flash(f'Erreur lors du chargement des annonces: {e}', 'error')
-        return render_template('dashboard.html', listings=[], stats={})
+        flash(f'Erreur: {e}', 'error')
+        return render_template('dashboard.html', listings=[], stats={'total': 0, 'nouveau': 0, 'interesse': 0, 'pas_interesse': 0, 'visite': 0})
 
 # ============================================================================
 # LISTING MANAGEMENT
@@ -366,11 +346,10 @@ def view_listing(listing_id):
         return redirect(url_for('dashboard'))
 
     try:
-        result = db.client.table('listings').select('*').eq('id', listing_id).eq('user_id', user_id).execute()
+        result = db.table('listings').select('*').eq('id', listing_id).eq('user_id', user_id).execute()
 
         if result.data:
-            listing = result.data[0]
-            return render_template('listing_detail.html', listing=listing)
+            return render_template('listing_detail.html', listing=result.data[0])
         else:
             flash('Annonce introuvable', 'error')
             return redirect(url_for('dashboard'))
@@ -396,8 +375,7 @@ def update_status(listing_id):
         return redirect(url_for('dashboard'))
 
     try:
-        # Vérifier que l'annonce appartient à l'utilisateur
-        result = db.client.table('listings').select('id').eq('id', listing_id).eq('user_id', user_id).execute()
+        result = db.table('listings').select('id').eq('id', listing_id).eq('user_id', user_id).execute()
 
         if result.data:
             db.update_listing_status(listing_id, user_id, new_status)
@@ -407,7 +385,6 @@ def update_status(listing_id):
     except Exception as e:
         flash(f'Erreur: {e}', 'error')
 
-    # Rediriger vers la page d'où on vient
     return redirect(request.referrer or url_for('dashboard'))
 
 @app.route('/listing/<listing_id>/delete', methods=['POST'])
@@ -421,8 +398,7 @@ def delete_listing(listing_id):
         return redirect(url_for('dashboard'))
 
     try:
-        # Vérifier que l'annonce appartient à l'utilisateur
-        result = db.client.table('listings').select('id').eq('id', listing_id).eq('user_id', user_id).execute()
+        result = db.table('listings').select('id').eq('id', listing_id).eq('user_id', user_id).execute()
 
         if result.data:
             db.delete_listing(listing_id, user_id)
@@ -616,10 +592,10 @@ def api_listings():
     user_id = session.get('user_id')
 
     if not is_db_connected():
-        return jsonify({'success': False, 'error': 'Base de données non configurée', 'listings': []}), 500
+        return jsonify({'success': False, 'error': 'Base de données non configurée'}), 500
 
     try:
-        result = db.client.table('listings').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
+        result = db.table('listings').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
         return jsonify({'success': True, 'listings': result.data})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -634,15 +610,15 @@ def api_stats():
         return jsonify({'success': False, 'error': 'Base de données non configurée'}), 500
 
     try:
-        result = db.client.table('listings').select('status').eq('user_id', user_id).execute()
+        result = db.table('listings').select('status').eq('user_id', user_id).execute()
         listings = result.data
 
         stats = {
             'total': len(listings),
-            'nouveau': len([l for l in listings if l['status'] == 'Nouveau']),
-            'interesse': len([l for l in listings if l['status'] == 'Intéressé']),
-            'pas_interesse': len([l for l in listings if l['status'] == 'Pas intéressé']),
-            'visite': len([l for l in listings if l['status'] == 'Visité']),
+            'nouveau': len([l for l in listings if l.get('status') == 'Nouveau']),
+            'interesse': len([l for l in listings if l.get('status') == 'Intéressé']),
+            'pas_interesse': len([l for l in listings if l.get('status') == 'Pas intéressé']),
+            'visite': len([l for l in listings if l.get('status') == 'Visité']),
         }
 
         return jsonify({'success': True, 'stats': stats})

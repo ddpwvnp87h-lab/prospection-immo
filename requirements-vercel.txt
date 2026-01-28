@@ -1,7 +1,0 @@
-# Requirements pour Vercel (version allégée)
-# Pas de Playwright ni BeautifulSoup (scrapers ne tournent pas sur Vercel)
-
-flask==3.0.0
-python-dotenv==1.0.0
-supabase==2.3.0
-pydantic==2.5.3
