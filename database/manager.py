@@ -10,18 +10,26 @@ class DatabaseManager:
 
     def __init__(self):
         """Initialise la connexion Supabase."""
+        import sys
+
         supabase_url = os.getenv('SUPABASE_URL')
         supabase_key = os.getenv('SUPABASE_KEY')
 
+        # Debug: afficher si les variables existent
+        print(f"[DB] SUPABASE_URL exists: {bool(supabase_url)}", flush=True)
+        print(f"[DB] SUPABASE_KEY exists: {bool(supabase_key)}", flush=True)
+        if supabase_url:
+            print(f"[DB] SUPABASE_URL starts with: {supabase_url[:30]}...", flush=True)
+
         if not supabase_url or not supabase_key:
-            print("⚠️ SUPABASE_URL et SUPABASE_KEY non définis - mode démo")
+            print("⚠️ SUPABASE_URL et SUPABASE_KEY non définis - mode démo", flush=True)
             self.client = None
         else:
             try:
                 self.client: Client = create_client(supabase_url, supabase_key)
-                print("✅ Connexion Supabase établie")
+                print("✅ Connexion Supabase établie", flush=True)
             except Exception as e:
-                print(f"⚠️ Erreur connexion Supabase: {e} - mode démo")
+                print(f"⚠️ Erreur connexion Supabase: {e} - mode démo", flush=True)
                 self.client = None
 
     def insert_listings(self, user_id: str, listings: List[Dict[str, Any]]) -> Dict[str, int]:
