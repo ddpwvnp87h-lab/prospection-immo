@@ -3,119 +3,180 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import re
+import json
 from .base import BaseScraper
 
 
 class FigaroImmoScraper(BaseScraper):
-    """Scraper pour proprietes.lefigaro.fr"""
+    """Scraper pour proprietes.lefigaro.fr / explorimmo"""
 
     @property
     def site_name(self) -> str:
-        return "proprietes.lefigaro.fr"
+        return "figaro-immo"
 
     def scrape(self, ville: str, rayon: int, max_pages: int = 5) -> List[Dict[str, Any]]:
-        """
-        Scrape les annonces de Figaro Immobilier
-
-        Args:
-            ville: Ville de recherche
-            rayon: Rayon en km
-            max_pages: Nombre max de pages
-
-        Returns:
-            Liste d'annonces normalisées
-        """
+        """Scrape les annonces de Figaro Immobilier / Explorimmo"""
         print(f"🔍 Scraping {self.site_name} pour {ville} (rayon: {rayon}km)")
 
         listings = []
         session = requests.Session()
-        session.headers.update({'User-Agent': self.user_agent})
+        session.headers.update({
+            'User-Agent': self.user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'fr-FR,fr;q=0.9',
+        })
 
-        # URL de recherche Figaro
-        base_url = f"https://proprietes.lefigaro.fr/annonces/immobilier-vente-{ville.lower().replace(' ', '-')}.html"
+        ville_slug = ville.lower().replace(' ', '-').replace("'", "-")
 
-        try:
-            for page_num in range(max_pages):
-                url = f"{base_url}?page={page_num + 1}" if page_num > 0 else base_url
+        # URLs à essayer
+        urls_to_try = [
+            f"https://immobilier.lefigaro.fr/annonces/immobilier-vente-bien-{ville_slug}.html",
+            f"https://www.explorimmo.com/resultat/vente/{ville_slug}",
+            f"https://immobilier.lefigaro.fr/annonces/annonce-vente-{ville_slug}.html",
+        ]
 
-                try:
-                    print(f"  📄 Page {page_num + 1}/{max_pages}...")
-                    response = session.get(url, timeout=15)
-                    response.raise_for_status()
+        for base_url in urls_to_try:
+            try:
+                print(f"  🔗 Tentative: {base_url}")
+                response = session.get(base_url, timeout=15)
 
+                if response.status_code == 200:
                     soup = BeautifulSoup(response.content, 'html.parser')
 
-                    # Trouver les annonces
-                    ads = soup.find_all('article', class_='classified-card') or \
-                          soup.find_all('div', class_='annonce')
+                    # Debug: afficher le titre de la page
+                    title = soup.find('title')
+                    if title:
+                        print(f"    📄 Page: {title.get_text()[:50]}")
 
-                    if not ads:
-                        print(f"    ⚠️  Aucune annonce sur la page {page_num + 1}")
-                        break
+                    ads = self._find_ads(soup)
 
-                    for ad in ads:
-                        try:
+                    if ads:
+                        print(f"  ✅ {len(ads)} annonces trouvées!")
+                        for ad in ads[:20]:
                             listing = self._extract_listing(ad, ville)
                             if listing:
                                 listings.append(listing)
-                        except Exception as e:
-                            print(f"    ⚠️  Erreur extraction: {e}")
-                            continue
+                        break
+                    else:
+                        print(f"  ⚠️ Aucune annonce")
+                else:
+                    print(f"  ⚠️ Status {response.status_code}")
 
-                    self._wait()
+            except Exception as e:
+                print(f"  ⚠️ Erreur: {e}")
+                continue
 
-                except requests.RequestException as e:
-                    print(f"    ⚠️  Erreur requête: {e}")
-                    break
-
-        except Exception as e:
-            print(f"⚠️  Erreur générale Figaro Immo: {e}")
+        # Essayer l'API si disponible
+        if not listings:
+            listings = self._try_json_data(session, ville)
 
         self._print_stats(listings)
+        return listings
+
+    def _find_ads(self, soup) -> list:
+        """Trouve les annonces avec différents sélecteurs."""
+        selectors = [
+            ('article', {}),
+            ('div', {'class': 'classified-card'}),
+            ('div', {'class': 'annonce-item'}),
+            ('div', {'class': 'listing-item'}),
+            ('li', {'class': 'annonce'}),
+            ('div', {'class': 'card'}),
+        ]
+
+        for tag, attrs in selectors:
+            if attrs:
+                ads = soup.find_all(tag, attrs)
+            else:
+                ads = soup.find_all(tag)
+                # Filtrer pour garder seulement ceux avec des liens
+                ads = [a for a in ads if a.find('a', href=True)]
+
+            if ads and len(ads) > 2:  # Au moins 3 pour éviter les faux positifs
+                print(f"    📋 Sélecteur: {tag} {attrs}")
+                return ads[:30]  # Limiter
+
+        return []
+
+    def _try_json_data(self, session, ville: str) -> List[Dict[str, Any]]:
+        """Essaie de trouver des données JSON dans la page."""
+        print("  🔄 Recherche données JSON...")
+        listings = []
+
+        try:
+            # Certains sites incluent des données JSON dans la page
+            url = f"https://immobilier.lefigaro.fr/annonces/immobilier-vente-bien-{ville.lower()}.html"
+            response = session.get(url, timeout=15)
+
+            if response.status_code == 200:
+                # Chercher des scripts JSON-LD
+                soup = BeautifulSoup(response.content, 'html.parser')
+                scripts = soup.find_all('script', type='application/ld+json')
+
+                for script in scripts:
+                    try:
+                        data = json.loads(script.string)
+                        print(f"    JSON-LD trouvé: {type(data)}")
+                    except:
+                        pass
+
+        except Exception as e:
+            print(f"    ⚠️ Erreur JSON: {e}")
+
         return listings
 
     def _extract_listing(self, ad_element, ville: str) -> Dict[str, Any]:
         """Extrait les données d'une annonce."""
         try:
-            # Lien
             link_elem = ad_element.find('a', href=True)
             if not link_elem:
                 return None
 
             lien = link_elem.get('href', '')
             if lien and not lien.startswith('http'):
-                lien = f"https://proprietes.lefigaro.fr{lien}"
+                lien = f"https://immobilier.lefigaro.fr{lien}"
 
             # Titre
-            titre_elem = ad_element.find('h2') or ad_element.find('h3')
-            titre = titre_elem.get_text(strip=True) if titre_elem else "Titre inconnu"
+            titre = None
+            for tag in ['h2', 'h3', 'h4']:
+                titre_elem = ad_element.find(tag)
+                if titre_elem:
+                    titre = titre_elem.get_text(strip=True)
+                    break
+
+            if not titre:
+                titre = link_elem.get_text(strip=True)[:100] or "Annonce Figaro"
 
             # Prix
-            prix_elem = ad_element.find('span', class_='price') or ad_element.find('div', class_='price')
-            prix_text = prix_elem.get_text(strip=True) if prix_elem else "0"
-            prix = self._parse_price(prix_text)
+            prix = 0
+            prix_elem = ad_element.find(string=re.compile(r'[\d\s]+€'))
+            if prix_elem:
+                prix = self._parse_price(prix_elem)
+            else:
+                for elem in ad_element.find_all(['span', 'div', 'p']):
+                    text = elem.get_text()
+                    if '€' in text:
+                        prix = self._parse_price(text)
+                        if prix > 10000:  # Prix réaliste
+                            break
 
             # Localisation
-            location_elem = ad_element.find('span', class_='location') or ad_element.find('div', class_='ville')
-            localisation = location_elem.get_text(strip=True) if location_elem else ville
+            localisation = ville
 
-            # Date
-            date_publication = datetime.now().strftime('%Y-%m-%d')
-
-            # Photos
+            # Photo
             photos = []
-            img_elem = ad_element.find('img')
-            if img_elem:
-                img_src = img_elem.get('src') or img_elem.get('data-src')
-                if img_src:
-                    photos.append(img_src)
+            img = ad_element.find('img')
+            if img:
+                src = img.get('src') or img.get('data-src')
+                if src and not src.startswith('data:'):
+                    photos.append(src)
 
             # Surface et pièces
-            surface, pieces = self._extract_surface_pieces(titre)
+            surface, pieces = self._extract_surface_pieces(titre + " " + ad_element.get_text())
 
             return {
                 'titre': titre,
-                'date_publication': date_publication,
+                'date_publication': datetime.now().strftime('%Y-%m-%d'),
                 'prix': prix,
                 'localisation': localisation,
                 'lien': lien,
@@ -132,7 +193,7 @@ class FigaroImmoScraper(BaseScraper):
 
     def _parse_price(self, price_text: str) -> int:
         try:
-            price_clean = re.sub(r'[^\d]', '', price_text)
+            price_clean = re.sub(r'[^\d]', '', str(price_text))
             return int(price_clean) if price_clean else 0
         except:
             return 0
