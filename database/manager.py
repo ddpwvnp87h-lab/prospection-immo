@@ -12,23 +12,32 @@ class DatabaseManager:
         """Initialise la connexion Supabase."""
         import sys
 
+        self.connection_error = None  # Stocke l'erreur de connexion
+        self.supabase_url_found = False
+        self.supabase_key_found = False
+
         supabase_url = os.getenv('SUPABASE_URL')
         supabase_key = os.getenv('SUPABASE_KEY')
 
+        self.supabase_url_found = bool(supabase_url)
+        self.supabase_key_found = bool(supabase_key)
+
         # Debug: afficher si les variables existent
-        print(f"[DB] SUPABASE_URL exists: {bool(supabase_url)}", flush=True)
-        print(f"[DB] SUPABASE_KEY exists: {bool(supabase_key)}", flush=True)
+        print(f"[DB] SUPABASE_URL exists: {self.supabase_url_found}", flush=True)
+        print(f"[DB] SUPABASE_KEY exists: {self.supabase_key_found}", flush=True)
         if supabase_url:
             print(f"[DB] SUPABASE_URL starts with: {supabase_url[:30]}...", flush=True)
 
         if not supabase_url or not supabase_key:
-            print("⚠️ SUPABASE_URL et SUPABASE_KEY non définis - mode démo", flush=True)
+            self.connection_error = "SUPABASE_URL et/ou SUPABASE_KEY non définis"
+            print(f"⚠️ {self.connection_error} - mode démo", flush=True)
             self.client = None
         else:
             try:
                 self.client: Client = create_client(supabase_url, supabase_key)
                 print("✅ Connexion Supabase établie", flush=True)
             except Exception as e:
+                self.connection_error = str(e)
                 print(f"⚠️ Erreur connexion Supabase: {e} - mode démo", flush=True)
                 self.client = None
 

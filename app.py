@@ -65,6 +65,118 @@ def update_scraping_status(user_id, **kwargs):
     scraping_status[user_id].update(kwargs)
 
 # ============================================================================
+# DEBUG ENDPOINT
+# ============================================================================
+
+@app.route('/debug')
+def debug_page():
+    """Page de diagnostic - affiche l'état de la connexion Supabase"""
+    import os
+
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_KEY')
+    flask_secret = os.getenv('FLASK_SECRET_KEY')
+
+    # Construire le HTML de diagnostic
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Debug - Prospection Immo</title>
+        <style>
+            body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+            .ok { color: #00ff00; }
+            .error { color: #ff4444; }
+            .warning { color: #ffaa00; }
+            .box { background: #16213e; padding: 15px; margin: 10px 0; border-radius: 8px; }
+            h1 { color: #4F46E5; }
+            .value { background: #0f3460; padding: 5px 10px; border-radius: 4px; }
+        </style>
+    </head>
+    <body>
+        <h1>🔧 Diagnostic Supabase</h1>
+    """
+
+    # Check SUPABASE_URL
+    html += '<div class="box">'
+    html += '<h3>SUPABASE_URL</h3>'
+    if supabase_url:
+        html += f'<p class="ok">✅ Défini</p>'
+        html += f'<p>Valeur: <span class="value">{supabase_url[:50]}...</span></p>'
+        html += f'<p>Longueur: {len(supabase_url)} caractères</p>'
+    else:
+        html += '<p class="error">❌ NON DÉFINI</p>'
+    html += '</div>'
+
+    # Check SUPABASE_KEY
+    html += '<div class="box">'
+    html += '<h3>SUPABASE_KEY</h3>'
+    if supabase_key:
+        html += f'<p class="ok">✅ Défini</p>'
+        html += f'<p>Longueur: {len(supabase_key)} caractères</p>'
+        html += f'<p>Commence par: <span class="value">{supabase_key[:20]}...</span></p>'
+    else:
+        html += '<p class="error">❌ NON DÉFINI</p>'
+    html += '</div>'
+
+    # Check FLASK_SECRET_KEY
+    html += '<div class="box">'
+    html += '<h3>FLASK_SECRET_KEY</h3>'
+    if flask_secret:
+        html += f'<p class="ok">✅ Défini ({len(flask_secret)} caractères)</p>'
+    else:
+        html += '<p class="warning">⚠️ Non défini (utilise valeur par défaut)</p>'
+    html += '</div>'
+
+    # Check DB connection
+    html += '<div class="box">'
+    html += '<h3>Connexion Base de Données</h3>'
+
+    # Info from DatabaseManager
+    html += f'<p>URL trouvée au démarrage: {"✅ Oui" if db.supabase_url_found else "❌ Non"}</p>'
+    html += f'<p>KEY trouvée au démarrage: {"✅ Oui" if db.supabase_key_found else "❌ Non"}</p>'
+
+    if db.connection_error:
+        html += f'<p class="error">❌ Erreur de connexion: {db.connection_error}</p>'
+
+    if db.client is not None:
+        html += '<p class="ok">✅ Connecté à Supabase</p>'
+        # Test une requête simple
+        try:
+            result = db.client.table('users').select('count', count='exact').execute()
+            html += f'<p class="ok">✅ Test requête OK</p>'
+        except Exception as e:
+            html += f'<p class="error">❌ Erreur requête: {str(e)[:100]}</p>'
+    else:
+        html += '<p class="error">❌ db.client est None - Pas de connexion</p>'
+        html += '<p class="warning">Le problème est probablement:</p>'
+        html += '<ul>'
+        html += '<li>Les variables ne sont pas chargées au démarrage</li>'
+        html += '<li>Une erreur s\'est produite lors de create_client()</li>'
+        html += '</ul>'
+    html += '</div>'
+
+    # Show all environment variables (filtered)
+    html += '<div class="box">'
+    html += '<h3>Toutes les variables d\'environnement (filtrées)</h3>'
+    html += '<ul>'
+    for key in sorted(os.environ.keys()):
+        if any(x in key.upper() for x in ['SUPABASE', 'FLASK', 'DATABASE', 'DB', 'SECRET']):
+            value = os.environ[key]
+            if 'KEY' in key.upper() or 'SECRET' in key.upper():
+                display_value = value[:10] + '...' if len(value) > 10 else value
+            else:
+                display_value = value[:50] + '...' if len(value) > 50 else value
+            html += f'<li><strong>{key}</strong>: <span class="value">{display_value}</span></li>'
+    html += '</ul>'
+    html += '</div>'
+
+    html += '<p><a href="/" style="color: #4F46E5;">← Retour à l\'application</a></p>'
+    html += '</body></html>'
+
+    return html
+
+# ============================================================================
 # AUTHENTICATION
 # ============================================================================
 
