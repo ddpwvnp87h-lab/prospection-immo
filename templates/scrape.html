@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+
+{% block title %}Scraping - Prospection Immo{% endblock %}
+
+{% block content %}
+<div class="scrape-page">
+    <h2>🔍 Lancer un Scraping</h2>
+
+    <!-- Status Panel -->
+    <div id="status-panel" class="status-panel {% if scraping_status.running %}status-running{% endif %}">
+        <div class="status-header">
+            <span id="status-icon">{% if scraping_status.running %}⏳{% else %}✅{% endif %}</span>
+            <span id="status-message">{{ scraping_status.message or 'Prêt à scraper' }}</span>
+        </div>
+
+        {% if scraping_status.running %}
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width: {{ scraping_status.progress }}%"></div>
+            </div>
+            <span class="progress-text" id="progress-text">{{ scraping_status.progress }}%</span>
+        </div>
+
+        <form method="POST" action="{{ url_for('stop_scrape') }}" class="stop-form">
+            <button type="submit" class="btn btn-danger">Arrêter le scraping</button>
+        </form>
+        {% endif %}
+
+        {% if scraping_status.results and not scraping_status.running %}
+        <div class="results-summary">
+            <h4>Résultats du dernier scraping:</h4>
+            <ul>
+                <li>Annonces scrapées: <strong>{{ scraping_status.results.total_scraped }}</strong></li>
+                <li>Annonces valides: <strong>{{ scraping_status.results.valid }}</strong></li>
+                <li>Particuliers uniquement: <strong>{{ scraping_status.results.particuliers }}</strong></li>
+                <li>Après déduplication: <strong>{{ scraping_status.results.final }}</strong></li>
+            </ul>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Voir les annonces</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Scraping Form -->
+    {% if not scraping_status.running %}
+    <div class="scrape-form-container">
+        <form method="POST" action="{{ url_for('run_scrape') }}" class="scrape-form" id="scrape-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="ville">Ville</label>
+                    <input type="text" id="ville" name="ville" value="Paris" required placeholder="Paris, Lyon, Marseille...">
+                </div>
+
+                <div class="form-group">
+                    <label for="rayon">Rayon (km)</label>
+                    <input type="number" id="rayon" name="rayon" value="10" min="1" max="100" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Sites à scraper</label>
+                <div class="sites-grid">
+                    <label class="site-checkbox">
+                        <input type="checkbox" name="sites" value="pap" checked>
+                        <span class="site-name">pap.fr</span>
+                        <span class="site-tag tag-easy">Rapide</span>
+                    </label>
+                    <label class="site-checkbox">
+                        <input type="checkbox" name="sites" value="figaro" checked>
+                        <span class="site-name">Figaro Immo</span>
+                        <span class="site-tag tag-easy">Rapide</span>
+                    </label>
+                    <label class="site-checkbox site-disabled" title="Nécessite Playwright (non installé)">
+                        <input type="checkbox" name="sites" value="leboncoin" disabled>
+                        <span class="site-name">leboncoin.fr</span>
+                        <span class="site-tag tag-disabled">Indisponible</span>
+                    </label>
+                    <label class="site-checkbox site-disabled" title="Nécessite Playwright (non installé)">
+                        <input type="checkbox" name="sites" value="facebook" disabled>
+                        <span class="site-name">Facebook</span>
+                        <span class="site-tag tag-disabled">Indisponible</span>
+                    </label>
+                </div>
+                <small>Les sites "Rapides" utilisent des requêtes HTTP simples. Les sites "Lents" nécessitent un navigateur.</small>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block">
+                🚀 Lancer le Scraping
+            </button>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Info -->
+    <div class="info-box info-box-info">
+        <h4>Comment ça marche?</h4>
+        <ol>
+            <li>Choisis une ville et un rayon de recherche</li>
+            <li>Sélectionne les sites à scraper (pap.fr et Figaro recommandés)</li>
+            <li>Clique sur <strong>"Lancer le Scraping"</strong></li>
+            <li>Attends que la barre de progression arrive à 100%</li>
+            <li>Les annonces apparaissent automatiquement dans ton Dashboard!</li>
+        </ol>
+    </div>
+</div>
+
+<style>
+.scrape-page h2 {
+    margin-bottom: 1.5rem;
+}
+
+.status-panel {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+    border-left: 4px solid var(--success);
+}
+
+.status-panel.status-running {
+    border-left-color: var(--warning);
+    background: #FFFBEB;
+}
+
+.status-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+#status-icon {
+    font-size: 1.5rem;
+}
+
+.progress-container {
+    margin-top: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 24px;
+    background: #E5E7EB;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    transition: width 0.3s ease;
+    border-radius: 12px;
+}
+
+.progress-text {
+    font-weight: 600;
+    font-size: 1.1rem;
+    min-width: 50px;
+}
+
+.stop-form {
+    margin-top: 1rem;
+}
+
+.results-summary {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--gray-200);
+}
+
+.results-summary h4 {
+    margin-bottom: 0.75rem;
+    color: var(--success);
+}
+
+.results-summary ul {
+    margin-bottom: 1rem;
+    padding-left: 1.5rem;
+}
+
+.results-summary li {
+    margin-bottom: 0.25rem;
+}
+
+.scrape-form-container {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.sites-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.site-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--gray-50);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: normal;
+    border: 2px solid transparent;
+}
+
+.site-checkbox:hover {
+    background: var(--gray-100);
+    border-color: var(--gray-300);
+}
+
+.site-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+}
+
+.site-checkbox input[type="checkbox"]:checked + .site-name {
+    font-weight: 600;
+}
+
+.site-name {
+    flex: 1;
+}
+
+.site-tag {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.tag-easy {
+    background: #D1FAE5;
+    color: #065F46;
+}
+
+.tag-slow {
+    background: #FEF3C7;
+    color: #92400E;
+}
+
+.tag-warning {
+    background: #FEE2E2;
+    color: #991B1B;
+}
+
+.tag-disabled {
+    background: #E5E7EB;
+    color: #6B7280;
+}
+
+.site-disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.site-disabled:hover {
+    background: var(--gray-50);
+    border-color: transparent;
+}
+
+.btn-block {
+    width: 100%;
+    margin-top: 1.5rem;
+    padding: 1rem 2rem;
+    font-size: 1.2rem;
+}
+
+.info-box {
+    padding: 1.5rem;
+    border-radius: var(--radius-lg);
+    border-left: 4px solid var(--info);
+    background: #DBEAFE;
+}
+
+.info-box h4 {
+    margin-bottom: 0.75rem;
+}
+
+.info-box ol {
+    padding-left: 1.5rem;
+    margin: 0;
+}
+
+.info-box li {
+    margin-bottom: 0.5rem;
+}
+
+@media (max-width: 600px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .sites-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+{% if scraping_status.running %}
+<script>
+// Polling pour mettre à jour le statut en temps réel
+function updateStatus() {
+    fetch('/scrape/status')
+        .then(response => response.json())
+        .then(data => {
+            // Mettre à jour le message
+            document.getElementById('status-message').textContent = data.message || 'En cours...';
+
+            // Mettre à jour la barre de progression
+            document.getElementById('progress-fill').style.width = data.progress + '%';
+            document.getElementById('progress-text').textContent = data.progress + '%';
+
+            // Changer l'icône selon le statut
+            if (data.running) {
+                document.getElementById('status-icon').textContent = '⏳';
+            } else {
+                document.getElementById('status-icon').textContent = '✅';
+                // Recharger la page quand terminé pour afficher les résultats
+                setTimeout(() => window.location.reload(), 1000);
+            }
+        })
+        .catch(err => console.error('Erreur polling:', err));
+}
+
+// Mettre à jour toutes les 2 secondes
+setInterval(updateStatus, 2000);
+
+// Premier appel immédiat
+updateStatus();
+</script>
+{% endif %}
+
+{% endblock %}

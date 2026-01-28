@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}{{ listing.title }} - Prospection Immo{% endblock %}
+
+{% block content %}
+<div class="listing-detail">
+    <div class="detail-header">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-outline">← Retour</a>
+        <div class="detail-actions">
+            <a href="{{ listing.url }}" target="_blank" class="btn btn-primary">Voir sur {{ listing.source }}</a>
+        </div>
+    </div>
+
+    <div class="detail-content">
+        <!-- Photos -->
+        {% if listing.photos and listing.photos|length > 0 %}
+        <div class="detail-photos">
+            <div class="photo-main">
+                <img src="{{ listing.photos[0] }}" alt="{{ listing.title }}">
+            </div>
+            {% if listing.photos|length > 1 %}
+            <div class="photo-thumbnails">
+                {% for photo in listing.photos[1:5] %}
+                    <img src="{{ photo }}" alt="Photo {{ loop.index + 1 }}">
+                {% endfor %}
+                {% if listing.photos|length > 5 %}
+                    <div class="photo-more">+{{ listing.photos|length - 5 }}</div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Informations principales -->
+        <div class="detail-main">
+            <h1>{{ listing.title }}</h1>
+
+            <div class="detail-price">{{ "{:,}".format(listing.price).replace(',', ' ') }} €</div>
+
+            <div class="detail-meta">
+                <span>📍 {{ listing.location }}</span>
+                {% if listing.surface %}
+                    <span>📏 {{ listing.surface }} m²</span>
+                {% endif %}
+                {% if listing.rooms %}
+                    <span>🚪 {{ listing.rooms }} pièces</span>
+                {% endif %}
+            </div>
+
+            <div class="detail-info">
+                <div class="info-row">
+                    <span class="info-label">Source:</span>
+                    <span class="info-value">{{ listing.source }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Date de publication:</span>
+                    <span class="info-value">{{ listing.published_date or 'Inconnue' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Date d'ajout:</span>
+                    <span class="info-value">{{ listing.created_at[:10] }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Dernière vue:</span>
+                    <span class="info-value">{{ listing.last_seen_at[:10] }}</span>
+                </div>
+                {% if listing.phone %}
+                <div class="info-row">
+                    <span class="info-label">Téléphone:</span>
+                    <span class="info-value"><a href="tel:{{ listing.phone }}">{{ listing.phone }}</a></span>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Statut -->
+            <div class="detail-status">
+                <form method="POST" action="{{ url_for('update_status', listing_id=listing.id) }}" class="status-form-large">
+                    <label for="status">Statut:</label>
+                    <div class="status-buttons">
+                        <button type="submit" name="status" value="Nouveau" class="status-btn {% if listing.status == 'Nouveau' %}active{% endif %}">
+                            Nouveau
+                        </button>
+                        <button type="submit" name="status" value="Intéressé" class="status-btn {% if listing.status == 'Intéressé' %}active{% endif %}">
+                            ✓ Intéressé
+                        </button>
+                        <button type="submit" name="status" value="Pas intéressé" class="status-btn {% if listing.status == 'Pas intéressé' %}active{% endif %}">
+                            ✗ Pas intéressé
+                        </button>
+                        <button type="submit" name="status" value="Visité" class="status-btn {% if listing.status == 'Visité' %}active{% endif %}">
+                            👁 Visité
+                        </button>
+                        <button type="submit" name="status" value="Contact pris" class="status-btn {% if listing.status == 'Contact pris' %}active{% endif %}">
+                            📞 Contact pris
+                        </button>
+                        <button type="submit" name="status" value="Offre faite" class="status-btn {% if listing.status == 'Offre faite' %}active{% endif %}">
+                            💰 Offre faite
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Description -->
+            {% if listing.description %}
+            <div class="detail-description">
+                <h3>Description</h3>
+                <p>{{ listing.description }}</p>
+            </div>
+            {% endif %}
+
+            <!-- Actions -->
+            <div class="detail-footer">
+                <a href="{{ listing.url }}" target="_blank" class="btn btn-primary btn-lg">
+                    Voir l'annonce complète
+                </a>
+
+                <form method="POST" action="{{ url_for('delete_listing', listing_id=listing.id) }}" onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cette annonce?')" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">Supprimer</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

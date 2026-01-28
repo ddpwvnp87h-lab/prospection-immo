@@ -1,0 +1,72 @@
+{
+  "ville": "Marseille",
+  "date": "2026-01-27T23:40:13.933569",
+  "total": 5,
+  "annonces": [
+    {
+      "titre": "Appartement 3 pièces - Marseille Centre",
+      "prix": "450 000 €",
+      "localisation": "Marseille 1er",
+      "lien": "https://www.pap.fr/annonce/demo-001",
+      "surface": 75,
+      "pieces": 3,
+      "photos": [
+        "https://example.com/photo1.jpg"
+      ],
+      "date_publication": "2026-01-27",
+      "site_source": "demo"
+    },
+    {
+      "titre": "Maison 5 pièces avec jardin - Marseille",
+      "prix": "680 000 €",
+      "localisation": "Marseille Ouest",
+      "lien": "https://www.pap.fr/annonce/demo-002",
+      "surface": 120,
+      "pieces": 5,
+      "photos": [
+        "https://example.com/photo2.jpg"
+      ],
+      "date_publication": "2026-01-27",
+      "site_source": "demo"
+    },
+    {
+      "titre": "Studio - Marseille Quartier Latin",
+      "prix": "220 000 €",
+      "localisation": "Marseille 5ème",
+      "lien": "https://www.leboncoin.fr/annonce/demo-003",
+      "surface": 25,
+      "pieces": 1,
+      "photos": [
+        "https://example.com/photo3.jpg"
+      ],
+      "date_publication": "2026-01-27",
+      "site_source": "demo"
+    },
+    {
+      "titre": "Appartement 2 pièces rénové - Marseille",
+      "prix": "380 000 €",
+      "localisation": "Marseille Nord",
+      "lien": "https://www.pap.fr/annonce/demo-004",
+      "surface": 55,
+      "pieces": 2,
+      "photos": [
+        "https://example.com/photo4.jpg"
+      ],
+      "date_publication": "2026-01-27",
+      "site_source": "demo"
+    },
+    {
+      "titre": "Loft industriel - Marseille Gare",
+      "prix": "520 000 €",
+      "localisation": "Marseille Centre",
+      "lien": "https://www.leboncoin.fr/annonce/demo-005",
+      "surface": 95,
+      "pieces": 3,
+      "photos": [
+        "https://example.com/photo5.jpg"
+      ],
+      "date_publication": "2026-01-27",
+      "site_source": "demo"
+    }
+  ]
+}

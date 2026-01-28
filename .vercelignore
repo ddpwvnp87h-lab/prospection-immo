@@ -1,0 +1,49 @@
+# Fichiers à ignorer lors du déploiement sur Vercel
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation locale
+*.md
+!README.md
+
+# Scripts locaux (non nécessaires sur Vercel)
+app.py
+start_app.sh
+test_*.py
+scraper_lite.py
+main.py
+demo_*.py
+
+# Scrapers (ne tournent pas sur Vercel)
+scrapers/
+
+# Utils locaux
+Makefile

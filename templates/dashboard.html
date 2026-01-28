@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Prospection Immo{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="dashboard-header">
+        <h2>Mes Annonces</h2>
+        <a href="{{ url_for('scrape_page') }}" class="btn btn-primary">+ Nouveau scraping</a>
+    </div>
+
+    <!-- Statistiques -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.total }}</div>
+            <div class="stat-label">Total</div>
+        </div>
+        <div class="stat-card stat-nouveau">
+            <div class="stat-value">{{ stats.nouveau }}</div>
+            <div class="stat-label">Nouveau</div>
+        </div>
+        <div class="stat-card stat-interesse">
+            <div class="stat-value">{{ stats.interesse }}</div>
+            <div class="stat-label">Intéressé</div>
+        </div>
+        <div class="stat-card stat-visite">
+            <div class="stat-value">{{ stats.visite }}</div>
+            <div class="stat-label">Visité</div>
+        </div>
+    </div>
+
+    <!-- Filtres -->
+    <div class="filters">
+        <form method="GET" action="{{ url_for('dashboard') }}" class="filter-form">
+            <div class="filter-group">
+                <input type="text" name="search" placeholder="Rechercher..." value="{{ search_query }}" class="filter-input">
+            </div>
+
+            <div class="filter-group">
+                <select name="status" class="filter-select">
+                    <option value="">Tous les statuts</option>
+                    <option value="Nouveau" {% if current_status == 'Nouveau' %}selected{% endif %}>Nouveau</option>
+                    <option value="Intéressé" {% if current_status == 'Intéressé' %}selected{% endif %}>Intéressé</option>
+                    <option value="Pas intéressé" {% if current_status == 'Pas intéressé' %}selected{% endif %}>Pas intéressé</option>
+                    <option value="Visité" {% if current_status == 'Visité' %}selected{% endif %}>Visité</option>
+                    <option value="Contact pris" {% if current_status == 'Contact pris' %}selected{% endif %}>Contact pris</option>
+                    <option value="Offre faite" {% if current_status == 'Offre faite' %}selected{% endif %}>Offre faite</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <select name="sort" class="filter-select">
+                    <option value="created_at" {% if sort_by == 'created_at' %}selected{% endif %}>Date d'ajout</option>
+                    <option value="price" {% if sort_by == 'price' %}selected{% endif %}>Prix</option>
+                    <option value="published_date" {% if sort_by == 'published_date' %}selected{% endif %}>Date de publication</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <select name="order" class="filter-select">
+                    <option value="desc" {% if sort_order == 'desc' %}selected{% endif %}>Décroissant</option>
+                    <option value="asc" {% if sort_order == 'asc' %}selected{% endif %}>Croissant</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-secondary">Filtrer</button>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline">Réinitialiser</a>
+        </form>
+    </div>
+
+    <!-- Liste des annonces -->
+    <div class="listings-grid">
+        {% if listings %}
+            {% for listing in listings %}
+            <div class="listing-card" data-status="{{ listing.status }}">
+                <div class="listing-image">
+                    {% if listing.photos and listing.photos|length > 0 %}
+                        <img src="{{ listing.photos[0] }}" alt="{{ listing.title }}" loading="lazy">
+                    {% else %}
+                        <div class="listing-no-image">📷</div>
+                    {% endif %}
+                    <span class="listing-badge listing-badge-{{ listing.status|lower|replace(' ', '-') }}">
+                        {{ listing.status }}
+                    </span>
+                </div>
+
+                <div class="listing-content">
+                    <h3 class="listing-title">
+                        <a href="{{ url_for('view_listing', listing_id=listing.id) }}">
+                            {{ listing.title }}
+                        </a>
+                    </h3>
+
+                    <div class="listing-meta">
+                        <span class="listing-price">{{ "{:,}".format(listing.price).replace(',', ' ') }} €</span>
+                        <span class="listing-location">📍 {{ listing.location }}</span>
+                    </div>
+
+                    {% if listing.surface or listing.rooms %}
+                    <div class="listing-details">
+                        {% if listing.surface %}
+                            <span>{{ listing.surface }} m²</span>
+                        {% endif %}
+                        {% if listing.rooms %}
+                            <span>{{ listing.rooms }} pièces</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+
+                    <div class="listing-footer">
+                        <span class="listing-source">{{ listing.source }}</span>
+                        <span class="listing-date">{{ listing.published_date or 'Date inconnue' }}</span>
+                    </div>
+
+                    <div class="listing-actions">
+                        <form method="POST" action="{{ url_for('update_status', listing_id=listing.id) }}" class="status-form">
+                            <select name="status" onchange="this.form.submit()" class="status-select">
+                                <option value="Nouveau" {% if listing.status == 'Nouveau' %}selected{% endif %}>Nouveau</option>
+                                <option value="Intéressé" {% if listing.status == 'Intéressé' %}selected{% endif %}>✓ Intéressé</option>
+                                <option value="Pas intéressé" {% if listing.status == 'Pas intéressé' %}selected{% endif %}>✗ Pas intéressé</option>
+                                <option value="Visité" {% if listing.status == 'Visité' %}selected{% endif %}>👁 Visité</option>
+                                <option value="Contact pris" {% if listing.status == 'Contact pris' %}selected{% endif %}>📞 Contact pris</option>
+                                <option value="Offre faite" {% if listing.status == 'Offre faite' %}selected{% endif %}>💰 Offre faite</option>
+                            </select>
+                        </form>
+
+                        <a href="{{ listing.url }}" target="_blank" class="btn btn-sm btn-outline">Voir l'annonce</a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">
+                <div class="empty-icon">🏠</div>
+                <h3>Aucune annonce</h3>
+                <p>Lancez un scraping pour commencer à collecter des annonces.</p>
+                <a href="{{ url_for('scrape_page') }}" class="btn btn-primary">Lancer un scraping</a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

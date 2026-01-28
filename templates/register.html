@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Inscription - Prospection Immo{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-box">
+        <h2>📝 Inscription</h2>
+        <p class="auth-subtitle">Créer un compte</p>
+
+        <form method="POST" action="{{ url_for('register') }}" class="auth-form">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autofocus>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Mot de passe</label>
+                <input type="password" id="password" name="password" required minlength="6">
+            </div>
+
+            <div class="form-group">
+                <label for="confirm_password">Confirmer le mot de passe</label>
+                <input type="password" id="confirm_password" name="confirm_password" required minlength="6">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">Créer le compte</button>
+        </form>
+
+        <p class="auth-footer">
+            Déjà un compte? <a href="{{ url_for('login') }}">Se connecter</a>
+        </p>
+    </div>
+</div>
+{% endblock %}
