@@ -49,29 +49,55 @@ class PapScraper(BaseScraper):
         return listings
 
     def _scrape_playwright(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec Playwright"""
+        """Scrape avec Playwright et fingerprint furtif"""
         listings = []
+        import random
 
         try:
-            print("  🎭 Mode Playwright")
+            print("  🎭 Mode Playwright (furtif)")
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
+
+                # Context avec fingerprint randomisé
+                viewports = [
+                    {'width': 1920, 'height': 1080},
+                    {'width': 1366, 'height': 768},
+                    {'width': 1536, 'height': 864},
+                ]
+                user_agents = [
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                ]
+
                 context = browser.new_context(
-                    user_agent=self.user_agent,
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='fr-FR'
+                    user_agent=random.choice(user_agents),
+                    viewport=random.choice(viewports),
+                    locale='fr-FR',
+                    timezone_id='Europe/Paris',
                 )
+
+                # Script anti-détection
+                context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.chrome = {runtime: {}};
+                """)
+
                 page = context.new_page()
 
-                # PAP utilise des URLs avec le nom de ville slugifié
-                # Mais supporte aussi les codes postaux
+                # Bloquer ressources inutiles
+                page.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2}", lambda route: route.abort())
+
                 urls = self._build_urls(location)
 
                 for url in urls:
                     try:
+                        # WAIT AVANT navigation (timing humain)
+                        self._wait()
+
                         print(f"  🔗 {url[:60]}...")
-                        page.goto(url, wait_until='networkidle', timeout=20000)
+                        page.goto(url, wait_until='networkidle', timeout=25000)
 
                         for page_num in range(1, max_pages + 1):
                             html = page.content()
@@ -86,16 +112,21 @@ class PapScraper(BaseScraper):
                             for ad in ads[:15]:
                                 listing = self._extract_listing(ad, location)
                                 if listing:
-                                    listings.append(listing)
+                                    # Enrichir et filtrer
+                                    listing = self._enrich_listing(listing, location)
+                                    should_reject, reason = self._should_reject_listing(listing)
+                                    if not should_reject:
+                                        listings.append(listing)
 
                             # Page suivante
                             if page_num < max_pages:
                                 next_btn = page.query_selector('a.next, a[rel="next"], .pagination a:last-child')
                                 if next_btn:
                                     try:
-                                        next_btn.click()
-                                        page.wait_for_load_state('networkidle', timeout=10000)
+                                        # WAIT AVANT click (crucial!)
                                         self._wait()
+                                        next_btn.click()
+                                        page.wait_for_load_state('networkidle', timeout=15000)
                                     except:
                                         break
                                 else:
@@ -105,6 +136,7 @@ class PapScraper(BaseScraper):
                             break
 
                     except PlaywrightTimeout:
+                        print(f"    ⏱️ Timeout, essai suivant...")
                         continue
                     except Exception as e:
                         print(f"    ⚠️ Erreur: {str(e)[:40]}")
@@ -118,15 +150,14 @@ class PapScraper(BaseScraper):
         return listings
 
     def _scrape_html(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec requests/BeautifulSoup"""
+        """Scrape avec requests/BeautifulSoup et headers furtifs"""
         listings = []
 
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': self.user_agent,
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
-        })
+        # Utiliser session avec headers Chrome complets
+        session = self._create_session_with_headers()
+
+        # Warm-up: visiter la page d'accueil d'abord
+        self._warm_session(session)
 
         urls = self._build_urls(location)
 
@@ -135,12 +166,27 @@ class PapScraper(BaseScraper):
 
             for page_num in range(1, max_pages + 1):
                 try:
+                    # WAIT AVANT requête
+                    self._wait()
+
                     url = f"{base_url}-page-{page_num}" if page_num > 1 else base_url
 
-                    response = session.get(url, timeout=15)
+                    # Mettre à jour le Referer pour navigation interne
+                    if page_num > 1:
+                        session.headers['Referer'] = base_url
+                        session.headers['Sec-Fetch-Site'] = 'same-origin'
 
-                    if response.status_code != 200:
+                    response = session.get(url, timeout=20)
+
+                    if response.status_code == 403:
+                        print(f"    🚫 Bloqué (403), pause longue...")
+                        self._record_failure(403)
                         break
+                    elif response.status_code != 200:
+                        print(f"    ⚠️ Status {response.status_code}")
+                        break
+
+                    self._record_success()
 
                     soup = BeautifulSoup(response.content, 'html.parser')
                     ads = self._find_ads(soup)
@@ -156,9 +202,11 @@ class PapScraper(BaseScraper):
                     for ad in ads[:15]:
                         listing = self._extract_listing(ad, location)
                         if listing:
-                            listings.append(listing)
-
-                    self._wait()
+                            # Enrichir et filtrer
+                            listing = self._enrich_listing(listing, location)
+                            should_reject, reason = self._should_reject_listing(listing)
+                            if not should_reject:
+                                listings.append(listing)
 
                 except Exception as e:
                     print(f"    ⚠️ Erreur page {page_num}: {e}")

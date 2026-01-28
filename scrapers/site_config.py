@@ -55,20 +55,21 @@ class SiteProfile:
 
 SITE_PROFILES = {
     # PAP - Site classique HTML stable
+    # CONSERVATIF: réduit RPS et pages, augmente jitter
     'pap': SiteProfile(
         name='pap.fr',
         enabled=True,
         mode='http',
-        rps=1.5,
-        burst=2,
-        jitter_range=(200, 800),
-        max_pages=10,
-        list_refresh_min=15,
+        rps=0.5,  # Réduit de 1.5 à 0.5 (1 req / 2s)
+        burst=1,  # Réduit de 2 à 1
+        jitter_range=(1500, 4000),  # Augmenté: 1.5-4s de jitter
+        max_pages=5,  # Réduit de 10 à 5
+        list_refresh_min=30,  # Augmenté de 15 à 30
         detail_refresh_hours=72,
-        backoff_sequence=[10, 30, 60, 120],
-        circuit_breaker_fails=10,
-        circuit_breaker_pause=20,
-        strict_location=False
+        backoff_sequence=[30, 60, 120, 240, 300],  # Plus agressif
+        circuit_breaker_fails=5,  # Réduit de 10 à 5
+        circuit_breaker_pause=30,  # Augmenté de 20 à 30
+        strict_location=True  # Activé pour filtrer les fausses localisations
     ),
 
     # ParuVendu - Site classique
@@ -76,16 +77,16 @@ SITE_PROFILES = {
         name='paruvendu.fr',
         enabled=True,
         mode='http',
-        rps=1.5,
-        burst=2,
-        jitter_range=(250, 900),
-        max_pages=8,
-        list_refresh_min=20,
+        rps=0.5,  # Réduit
+        burst=1,
+        jitter_range=(1500, 4000),
+        max_pages=4,  # Réduit de 8 à 4
+        list_refresh_min=30,
         detail_refresh_hours=72,
-        backoff_sequence=[10, 30, 60, 120],
-        circuit_breaker_fails=10,
-        circuit_breaker_pause=20,
-        strict_location=False
+        backoff_sequence=[30, 60, 120, 240],
+        circuit_breaker_fails=5,
+        circuit_breaker_pause=30,
+        strict_location=True
     ),
 
     # EntreParticuliers - Site classique
@@ -93,84 +94,85 @@ SITE_PROFILES = {
         name='entreparticuliers.com',
         enabled=True,
         mode='http',
-        rps=1.5,
-        burst=2,
-        jitter_range=(200, 800),
-        max_pages=8,
-        list_refresh_min=20,
+        rps=0.5,
+        burst=1,
+        jitter_range=(1500, 4000),
+        max_pages=4,
+        list_refresh_min=30,
         detail_refresh_hours=72,
-        backoff_sequence=[10, 30, 60, 120],
-        circuit_breaker_fails=10,
-        circuit_breaker_pause=20,
-        strict_location=False
+        backoff_sequence=[30, 60, 120, 240],
+        circuit_breaker_fails=5,
+        circuit_breaker_pause=30,
+        strict_location=True
     ),
 
-    # Leboncoin - Site mi-JS, hybrid
+    # Leboncoin - Site très surveillé, hybrid
+    # TRÈS CONSERVATIF
     'leboncoin': SiteProfile(
         name='leboncoin.fr',
         enabled=True,
         mode='hybrid',
-        rps=1.0,
+        rps=0.25,  # Très lent: 1 req / 4s
         burst=1,
-        jitter_range=(400, 1200),
-        max_pages=4,
-        list_refresh_min=20,
+        jitter_range=(3000, 8000),  # 3-8s de jitter
+        max_pages=3,  # Réduit de 4 à 3
+        list_refresh_min=45,  # Augmenté
         detail_refresh_hours=72,
-        backoff_sequence=[20, 60, 120, 240, 300],
-        circuit_breaker_fails=8,
-        circuit_breaker_pause=30,
-        strict_location=False
+        backoff_sequence=[60, 120, 240, 300, 600],  # Backoff très long
+        circuit_breaker_fails=3,  # Très sensible
+        circuit_breaker_pause=60,  # 1 heure de pause
+        strict_location=True
     ),
 
-    # Figaro Immo - Agrégateur strict
+    # Figaro Immo - Agrégateur
     'figaro': SiteProfile(
         name='figaro-immo',
         enabled=True,
         mode='http',
-        rps=1.0,
+        rps=0.4,
         burst=1,
-        jitter_range=(300, 1100),
-        max_pages=4,
-        list_refresh_min=30,
+        jitter_range=(2000, 5000),
+        max_pages=3,
+        list_refresh_min=45,
         detail_refresh_hours=96,
-        backoff_sequence=[20, 60, 120, 240],
-        circuit_breaker_fails=8,
-        circuit_breaker_pause=30,
-        strict_location=True  # Validation localisation stricte
+        backoff_sequence=[30, 60, 120, 240, 300],
+        circuit_breaker_fails=4,
+        circuit_breaker_pause=45,
+        strict_location=True
     ),
 
-    # MoteurImmo - Agrégateur strict (même profil que Figaro)
+    # MoteurImmo - Agrégateur
     'moteurimmo': SiteProfile(
         name='moteurimmo.fr',
         enabled=True,
         mode='http',
-        rps=1.0,
+        rps=0.4,
         burst=1,
-        jitter_range=(300, 1100),
-        max_pages=4,
-        list_refresh_min=30,
+        jitter_range=(2000, 5000),
+        max_pages=3,
+        list_refresh_min=45,
         detail_refresh_hours=96,
-        backoff_sequence=[20, 60, 120, 240],
-        circuit_breaker_fails=8,
-        circuit_breaker_pause=30,
-        strict_location=True  # Validation localisation stricte
+        backoff_sequence=[30, 60, 120, 240, 300],
+        circuit_breaker_fails=4,
+        circuit_breaker_pause=45,
+        strict_location=True
     ),
 
-    # Facebook Marketplace - DÉSACTIVÉ par défaut
+    # Facebook Marketplace - DÉSACTIVÉ (trop hostile)
     'facebook': SiteProfile(
         name='facebook-marketplace',
-        enabled=False,  # Désactivé par défaut
-        disabled_reason='Site hostile, captcha fréquent',
+        enabled=False,
+        disabled_reason='Site hostile, captcha fréquent, risque de ban',
         mode='browser',
-        rps=0.3,
+        rps=0.1,
         burst=1,
-        jitter_range=(800, 2500),
+        jitter_range=(5000, 15000),
         max_pages=1,
-        list_refresh_min=60,
-        detail_refresh_hours=96,
-        backoff_sequence=[30, 60, 120, 300, 600],
-        circuit_breaker_fails=5,
-        circuit_breaker_pause=60,
+        list_refresh_min=120,
+        detail_refresh_hours=168,
+        backoff_sequence=[120, 300, 600, 1800],
+        circuit_breaker_fails=2,
+        circuit_breaker_pause=120,
         strict_location=True
     ),
 }

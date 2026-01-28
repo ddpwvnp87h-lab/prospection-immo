@@ -58,22 +58,31 @@ class LeboncoinScraper(BaseScraper):
         return listings
 
     def _scrape_api_geo(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape via l'API LeBonCoin avec coordonnées GPS"""
+        """Scrape via l'API LeBonCoin avec coordonnées GPS et headers furtifs"""
         listings = []
 
-        session = requests.Session()
+        # Session avec headers Chrome complets
+        session = self._create_session_with_headers()
+
+        # Headers spécifiques pour API
         session.headers.update({
-            'User-Agent': self.user_agent,
             'Accept': 'application/json',
             'Origin': 'https://www.leboncoin.fr',
             'Referer': 'https://www.leboncoin.fr/',
+            'Content-Type': 'application/json',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
         })
 
         try:
-            print("  🎯 Mode API géolocalisée...")
+            print("  🎯 Mode API géolocalisée (furtif)...")
             api_url = "https://api.leboncoin.fr/finder/search"
 
             for page_num in range(1, max_pages + 1):
+                # WAIT AVANT requête (crucial pour LeBonCoin!)
+                self._wait()
+
                 # Payload avec coordonnées GPS
                 payload = {
                     "limit": 35,
@@ -94,9 +103,10 @@ class LeboncoinScraper(BaseScraper):
                 }
 
                 try:
-                    response = session.post(api_url, json=payload, timeout=15)
+                    response = session.post(api_url, json=payload, timeout=20)
 
                     if response.status_code == 200:
+                        self._record_success()
                         data = response.json()
                         ads = data.get('ads', [])
 
@@ -108,11 +118,23 @@ class LeboncoinScraper(BaseScraper):
                         for ad in ads:
                             listing = self._parse_api_ad(ad, location['ville'])
                             if listing:
-                                listings.append(listing)
+                                # Enrichir avec métadonnées
+                                listing = self._enrich_listing(listing, location)
+                                should_reject, reason = self._should_reject_listing(listing)
+                                if not should_reject:
+                                    listings.append(listing)
 
-                        self._wait()
+                    elif response.status_code == 403:
+                        print(f"    🚫 Bloqué (403), arrêt...")
+                        self._record_failure(403)
+                        break
+                    elif response.status_code == 429:
+                        print(f"    ⏳ Rate limit (429), pause longue...")
+                        self._record_failure(429)
+                        break
                     else:
                         print(f"    ⚠️ API Status {response.status_code}")
+                        self._record_failure(response.status_code)
                         break
 
                 except Exception as e:
@@ -125,19 +147,40 @@ class LeboncoinScraper(BaseScraper):
         return listings
 
     def _scrape_playwright(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape avec Playwright"""
+        """Scrape avec Playwright et fingerprint furtif"""
         listings = []
+        import random
 
         try:
-            print("  🎭 Mode Playwright...")
+            print("  🎭 Mode Playwright (furtif)...")
 
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
+
+                # Fingerprint randomisé
+                viewports = [
+                    {'width': 1920, 'height': 1080},
+                    {'width': 1366, 'height': 768},
+                    {'width': 1536, 'height': 864},
+                ]
+                user_agents = [
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                ]
+
                 context = browser.new_context(
-                    user_agent=self.user_agent,
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='fr-FR'
+                    user_agent=random.choice(user_agents),
+                    viewport=random.choice(viewports),
+                    locale='fr-FR',
+                    timezone_id='Europe/Paris',
                 )
+
+                # Script anti-détection
+                context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.chrome = {runtime: {}};
+                """)
+
                 page = context.new_page()
                 page.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2}", lambda route: route.abort())
 
@@ -147,6 +190,9 @@ class LeboncoinScraper(BaseScraper):
 
                 for page_num in range(1, max_pages + 1):
                     try:
+                        # WAIT AVANT navigation (timing humain)
+                        self._wait()
+
                         # URL avec localisation
                         url = f"https://www.leboncoin.fr/recherche?category=9&text={search_encoded}&page={page_num}"
 
@@ -154,10 +200,10 @@ class LeboncoinScraper(BaseScraper):
                             url += f"&lat={location['lat']}&lng={location['lon']}&radius={rayon * 1000}"
 
                         print(f"    📄 Page {page_num}...")
-                        page.goto(url, wait_until='networkidle', timeout=30000)
+                        page.goto(url, wait_until='networkidle', timeout=35000)
 
                         try:
-                            page.wait_for_selector('[data-qa-id="aditem_container"], article', timeout=10000)
+                            page.wait_for_selector('[data-qa-id="aditem_container"], article', timeout=12000)
                         except:
                             pass
 
@@ -176,9 +222,10 @@ class LeboncoinScraper(BaseScraper):
                         for ad in ads[:15]:
                             listing = self._extract_listing_html(ad, location['ville'])
                             if listing:
-                                listings.append(listing)
-
-                        self._wait()
+                                listing = self._enrich_listing(listing, location)
+                                should_reject, reason = self._should_reject_listing(listing)
+                                if not should_reject:
+                                    listings.append(listing)
 
                     except PlaywrightTimeout:
                         print(f"    ⏱️ Timeout page {page_num}")
@@ -195,14 +242,16 @@ class LeboncoinScraper(BaseScraper):
         return listings
 
     def _scrape_api(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape via l'API par texte"""
+        """Scrape via l'API par texte avec headers furtifs"""
         listings = []
 
-        session = requests.Session()
+        session = self._create_session_with_headers()
         session.headers.update({
-            'User-Agent': self.user_agent,
             'Accept': 'application/json',
             'Origin': 'https://www.leboncoin.fr',
+            'Content-Type': 'application/json',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
         })
 
         try:
@@ -262,28 +311,37 @@ class LeboncoinScraper(BaseScraper):
         return listings
 
     def _scrape_html(self, location: dict, rayon: int, max_pages: int) -> List[Dict[str, Any]]:
-        """Scrape HTML simple"""
+        """Scrape HTML simple avec headers furtifs"""
         listings = []
 
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': self.user_agent,
-            'Accept': 'text/html,application/xhtml+xml',
-        })
+        session = self._create_session_with_headers()
+
+        # Warm-up
+        self._warm_session(session)
 
         try:
-            print("  📄 Mode HTML...")
+            print("  📄 Mode HTML (furtif)...")
 
             search_term = location['code_postal'] or location['ville']
 
             for page_num in range(1, max_pages + 1):
+                # WAIT AVANT requête
+                self._wait()
+
                 url = f"https://www.leboncoin.fr/recherche?category=9&text={search_term}&page={page_num}"
 
                 try:
-                    response = session.get(url, timeout=15)
+                    response = session.get(url, timeout=20)
 
-                    if response.status_code != 200:
+                    if response.status_code == 403:
+                        print(f"    🚫 Bloqué (403)")
+                        self._record_failure(403)
                         break
+                    elif response.status_code != 200:
+                        print(f"    ⚠️ Status {response.status_code}")
+                        break
+
+                    self._record_success()
 
                     soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -299,11 +357,12 @@ class LeboncoinScraper(BaseScraper):
                                 for ad in ads:
                                     listing = self._parse_json_ad(ad, location['ville'])
                                     if listing:
-                                        listings.append(listing)
+                                        listing = self._enrich_listing(listing, location)
+                                        should_reject, reason = self._should_reject_listing(listing)
+                                        if not should_reject:
+                                            listings.append(listing)
                         except:
                             pass
-
-                    self._wait()
 
                 except Exception as e:
                     print(f"    ⚠️ Erreur: {e}")

@@ -109,24 +109,39 @@ class EntreParticuliersScraper(BaseScraper):
     def _scrape_html(self, location: dict, max_pages: int) -> List[Dict[str, Any]]:
         listings = []
 
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': self.user_agent,
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
-        })
+        # Session avec headers Chrome complets
+        session = self._create_session_with_headers()
+
+        # Warm-up
+        self._warm_session(session)
 
         urls = self._build_urls(location)
 
         for base_url in urls:
             for page_num in range(1, max_pages + 1):
                 try:
+                    # WAIT AVANT requête
+                    self._wait()
+
                     url = f"{base_url}?page={page_num}" if page_num > 1 else base_url
                     print(f"  📄 Page {page_num}: {url[:60]}...")
 
-                    response = session.get(url, timeout=15)
-                    if response.status_code != 200:
+                    # Mettre à jour Referer
+                    if page_num > 1:
+                        session.headers['Referer'] = base_url
+                        session.headers['Sec-Fetch-Site'] = 'same-origin'
+
+                    response = session.get(url, timeout=20)
+
+                    if response.status_code == 403:
+                        print(f"    🚫 Bloqué (403)")
+                        self._record_failure(403)
                         break
+                    elif response.status_code != 200:
+                        print(f"    ⚠️ Status {response.status_code}")
+                        break
+
+                    self._record_success()
 
                     soup = BeautifulSoup(response.content, 'html.parser')
                     ads = self._find_ads(soup)
@@ -139,9 +154,10 @@ class EntreParticuliersScraper(BaseScraper):
                     for ad in ads[:15]:
                         listing = self._extract_listing(ad, location)
                         if listing:
-                            listings.append(listing)
-
-                    self._wait()
+                            listing = self._enrich_listing(listing, location)
+                            should_reject, reason = self._should_reject_listing(listing)
+                            if not should_reject:
+                                listings.append(listing)
 
                 except Exception as e:
                     print(f"    ⚠️ Erreur: {e}")
