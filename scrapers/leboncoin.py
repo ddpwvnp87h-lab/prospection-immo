@@ -89,7 +89,10 @@ class LeboncoinScraper(BaseScraper):
                     "offset": (page_num - 1) * 35,
                     "filters": {
                         "category": {"id": "9"},  # Immobilier vente
-                        "enums": {"ad_type": ["offer"]},
+                        "enums": {
+                            "ad_type": ["offer"],
+                            "owner_type": ["private"]  # PARTICULIERS UNIQUEMENT
+                        },
                         "location": {
                             "area": {
                                 "lat": location['lat'],
@@ -193,8 +196,8 @@ class LeboncoinScraper(BaseScraper):
                         # WAIT AVANT navigation (timing humain)
                         self._wait()
 
-                        # URL avec localisation
-                        url = f"https://www.leboncoin.fr/recherche?category=9&text={search_encoded}&page={page_num}"
+                        # URL avec localisation + PARTICULIERS UNIQUEMENT
+                        url = f"https://www.leboncoin.fr/recherche?category=9&owner_type=private&text={search_encoded}&page={page_num}"
 
                         if location['lat'] and location['lon']:
                             url += f"&lat={location['lat']}&lng={location['lon']}&radius={rayon * 1000}"
@@ -267,7 +270,10 @@ class LeboncoinScraper(BaseScraper):
                     "offset": (page_num - 1) * 35,
                     "filters": {
                         "category": {"id": "9"},
-                        "enums": {"ad_type": ["offer"]},
+                        "enums": {
+                            "ad_type": ["offer"],
+                            "owner_type": ["private"]  # PARTICULIERS UNIQUEMENT
+                        },
                         "keywords": {"text": search_text},
                     },
                     "sort_by": "time",
@@ -328,7 +334,7 @@ class LeboncoinScraper(BaseScraper):
                 # WAIT AVANT requête
                 self._wait()
 
-                url = f"https://www.leboncoin.fr/recherche?category=9&text={search_term}&page={page_num}"
+                url = f"https://www.leboncoin.fr/recherche?category=9&owner_type=private&text={search_term}&page={page_num}"
 
                 try:
                     response = session.get(url, timeout=20)

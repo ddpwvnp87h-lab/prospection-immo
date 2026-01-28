@@ -124,10 +124,11 @@ SITE_PROFILES = {
         strict_location=True
     ),
 
-    # Figaro Immo - Agrégateur
+    # Figaro Immo - DÉSACTIVÉ (scrape articles au lieu d'annonces)
     'figaro': SiteProfile(
         name='figaro-immo',
-        enabled=True,
+        enabled=False,
+        disabled_reason='Scrape articles de presse au lieu d\'annonces - V2',
         mode='http',
         rps=0.4,
         burst=1,

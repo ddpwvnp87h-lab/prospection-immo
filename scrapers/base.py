@@ -421,6 +421,21 @@ class BaseScraper(ABC):
             if confidence == 'inferred':
                 return True, 'inferred_location'
 
+        # Vérifier correspondance département (crucial pour DOM-TOM)
+        expected_dept = listing.get('_expected_dept')
+        extracted_cp = listing.get('_geo_cp')
+        if expected_dept and extracted_cp:
+            # Extraire le département du code postal
+            # DOM-TOM: 97X (971=Guadeloupe, 972=Martinique, 973=Guyane, 974=Réunion, 976=Mayotte)
+            # Métropole: 2 premiers chiffres (sauf Corse: 2A/2B → 20)
+            if extracted_cp.startswith('97'):
+                extracted_dept = extracted_cp[:3]  # 971, 972, 973, 974, 976
+            else:
+                extracted_dept = extracted_cp[:2]  # 75, 13, 69, etc.
+
+            if extracted_dept != expected_dept:
+                return True, f'wrong_department:{extracted_dept}!={expected_dept}'
+
         # Vérifier prix (doit être > 0)
         prix = listing.get('prix', 0)
         if not prix or prix <= 0:
@@ -451,6 +466,15 @@ class BaseScraper(ABC):
         # Ajouter métadonnées de scraping
         listing['_scraped_at'] = time.strftime('%Y-%m-%d %H:%M:%S')
         listing['_scraper'] = self.site_key
+
+        # Stocker le département attendu (depuis la recherche)
+        search_cp = location.get('code_postal', '')
+        if search_cp:
+            # DOM-TOM: 97X (971=Guadeloupe, 972=Martinique, 973=Guyane, 974=Réunion, 976=Mayotte)
+            if search_cp.startswith('97'):
+                listing['_expected_dept'] = search_cp[:3]
+            else:
+                listing['_expected_dept'] = search_cp[:2]
 
         # Si localisation présente, analyser la confidence
         if 'localisation' in listing and listing['localisation']:
