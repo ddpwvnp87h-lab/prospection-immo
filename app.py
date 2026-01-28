@@ -143,7 +143,7 @@ def debug_page():
         html += '<p class="ok">✅ Connecté à Supabase</p>'
         # Test une requête simple
         try:
-            result = db.client.table('users').select('count', count='exact').execute()
+            result = db.client.table('users').select('id').execute()
             html += f'<p class="ok">✅ Test requête OK</p>'
         except Exception as e:
             html += f'<p class="error">❌ Erreur requête: {str(e)[:100]}</p>'

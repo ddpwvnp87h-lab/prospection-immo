@@ -28,7 +28,7 @@ class DatabaseManager:
             # Test de connexion
             try:
                 self._request('GET', 'users', params={'select': 'id', 'limit': '1'})
-                self.client = True  # Marque comme connecté
+                self.client = self  # Permet db.client.table() de fonctionner
                 print("✅ Connexion Supabase établie", flush=True)
             except Exception as e:
                 self.connection_error = str(e)
