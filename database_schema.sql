@@ -14,9 +14,13 @@ CREATE TABLE users (
 CREATE TABLE search_params (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    ville TEXT NOT NULL,
+    ville TEXT NOT NULL DEFAULT 'Paris',
     rayon INTEGER DEFAULT 10,
     region TEXT DEFAULT 'France métropolitaine',
+    -- Nouvelles colonnes pour sauvegarder les préférences complètes
+    sites JSONB DEFAULT '["pap", "entreparticuliers", "leboncoin"]'::jsonb,
+    lat DOUBLE PRECISION,
+    lon DOUBLE PRECISION,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(user_id)
@@ -45,7 +49,7 @@ CREATE TABLE listings (
     description TEXT,
 
     -- Métadonnées
-    status TEXT DEFAULT 'Nouveau' CHECK (status IN ('Nouveau', 'Contacté', 'Réponse reçue', 'Pas de réponse', 'Pas intéressé')),
+    status TEXT DEFAULT 'Nouveau' CHECK (status IN ('Nouveau', 'Intéressé', 'Pas intéressé', 'Visité', 'Contact pris', 'Offre faite', 'Contacté', 'Réponse reçue', 'Pas de réponse')),
     published_date DATE,
 
     -- Timestamps
@@ -64,6 +68,7 @@ CREATE INDEX idx_listings_created_at ON listings(created_at);
 CREATE INDEX idx_listings_url ON listings(url);
 CREATE INDEX idx_listings_hash ON listings(hash);
 CREATE INDEX idx_listings_last_seen ON listings(last_seen_at);
+CREATE INDEX idx_search_params_user_id ON search_params(user_id);
 
 -- Fonction de nettoyage automatique (à appeler via cron ou manuellement)
 CREATE OR REPLACE FUNCTION cleanup_old_listings()
@@ -108,10 +113,10 @@ SELECT
     u.email,
     COUNT(l.id) as total_listings,
     COUNT(l.id) FILTER (WHERE l.status = 'Nouveau') as nouveaux,
-    COUNT(l.id) FILTER (WHERE l.status = 'Contacté') as contactes,
-    COUNT(l.id) FILTER (WHERE l.status = 'Réponse reçue') as reponses_recues,
-    COUNT(l.id) FILTER (WHERE l.status = 'Pas de réponse') as pas_de_reponse,
-    COUNT(l.id) FILTER (WHERE l.status = 'Pas intéressé') as pas_interesses
+    COUNT(l.id) FILTER (WHERE l.status = 'Intéressé') as interesses,
+    COUNT(l.id) FILTER (WHERE l.status = 'Pas intéressé') as pas_interesses,
+    COUNT(l.id) FILTER (WHERE l.status = 'Visité') as visites,
+    COUNT(l.id) FILTER (WHERE l.status = 'Contact pris') as contacts_pris
 FROM users u
 LEFT JOIN listings l ON u.id = l.user_id
 GROUP BY u.id, u.email;
@@ -133,6 +138,9 @@ CREATE POLICY user_search_params_policy ON search_params
 -- Commentaires pour documentation
 COMMENT ON TABLE listings IS 'Annonces immobilières scrapées, isolées par utilisateur';
 COMMENT ON TABLE users IS 'Utilisateurs de l application';
-COMMENT ON TABLE search_params IS 'Paramètres de recherche personnalisés par utilisateur';
+COMMENT ON TABLE search_params IS 'Paramètres de recherche personnalisés par utilisateur (ville, rayon, sites, GPS)';
 COMMENT ON COLUMN listings.hash IS 'Hash MD5 de titre+prix+localisation pour déduplication';
 COMMENT ON COLUMN listings.last_seen_at IS 'Dernière fois que l annonce a été vue lors d un scraping';
+COMMENT ON COLUMN search_params.sites IS 'Liste JSON des sites à scraper';
+COMMENT ON COLUMN search_params.lat IS 'Latitude GPS pour géolocalisation';
+COMMENT ON COLUMN search_params.lon IS 'Longitude GPS pour géolocalisation';
