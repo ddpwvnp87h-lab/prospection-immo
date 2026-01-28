@@ -3,7 +3,9 @@ from .validator import (
     deduplicate_by_url,
     deduplicate_by_signature,
     is_agency,
-    filter_agencies
+    filter_agencies,
+    filter_by_location,
+    extract_department
 )
 from .geolocation import (
     GeoLocation,
@@ -18,6 +20,8 @@ __all__ = [
     'deduplicate_by_signature',
     'is_agency',
     'filter_agencies',
+    'filter_by_location',
+    'extract_department',
     'GeoLocation',
     'geo',
     'get_location_info',

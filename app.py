@@ -451,7 +451,7 @@ def run_scraping_task(user_id, ville, rayon, sites, lat=None, lon=None):
         )
 
         # Import des modules de scraping
-        from utils.validator import validate_listing, deduplicate_by_url, deduplicate_by_signature, filter_agencies
+        from utils.validator import validate_listing, deduplicate_by_url, deduplicate_by_signature, filter_agencies, filter_by_location
 
         # Si coordonnées GPS fournies, pré-remplir le cache de géolocalisation
         geo_override = None
@@ -538,7 +538,12 @@ def run_scraping_task(user_id, ville, rayon, sites, lat=None, lon=None):
 
         valid_listings = [l for l in all_listings if validate_listing(l)]
         particulier_listings = filter_agencies(valid_listings)
-        dedup_url = deduplicate_by_url(particulier_listings)
+
+        # Filtrer par département (évite les résultats de mauvaises localisations)
+        departement = geo_override.get('departement') if geo_override else None
+        location_filtered = filter_by_location(particulier_listings, ville, departement)
+
+        dedup_url = deduplicate_by_url(location_filtered)
         final_listings = deduplicate_by_signature(dedup_url)
 
         # Insertion en base de données
@@ -567,6 +572,7 @@ def run_scraping_task(user_id, ville, rayon, sites, lat=None, lon=None):
                 'total_scraped': len(all_listings),
                 'valid': len(valid_listings),
                 'particuliers': len(particulier_listings),
+                'location_filtered': len(location_filtered),
                 'final': len(final_listings),
                 'inserted': inserted,
                 'updated': updated

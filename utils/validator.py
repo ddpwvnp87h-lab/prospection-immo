@@ -155,3 +155,79 @@ def _generate_signature(listing: Dict[str, Any]) -> str:
 
     signature = f"{titre}_{prix}_{localisation}"
     return hashlib.md5(signature.encode()).hexdigest()
+
+
+def extract_department(text: str) -> str:
+    """
+    Extrait le code département d'un texte contenant un code postal.
+
+    Args:
+        text: Texte contenant potentiellement un code postal
+
+    Returns:
+        Code département (2 ou 3 caractères) ou None
+    """
+    import re
+
+    # Chercher un code postal français (5 chiffres)
+    match = re.search(r'\b(\d{5})\b', text)
+    if match:
+        cp = match.group(1)
+        # DOM-TOM: 97xxx, 98xxx
+        if cp.startswith('97') or cp.startswith('98'):
+            return cp[:3]
+        # Corse: 20xxx -> 2A ou 2B
+        elif cp.startswith('20'):
+            return '2A' if int(cp) < 20200 else '2B'
+        else:
+            return cp[:2]
+
+    return None
+
+
+def filter_by_location(listings: List[Dict[str, Any]], target_location: str, departement: str = None) -> List[Dict[str, Any]]:
+    """
+    Filtre les annonces par localisation (département).
+
+    Args:
+        listings: Liste des annonces
+        target_location: Localisation recherchée (ville ou code postal)
+        departement: Code département cible (optionnel, sera extrait de target_location si absent)
+
+    Returns:
+        Liste des annonces correspondant au département recherché
+    """
+    # Extraire le département cible
+    if not departement:
+        departement = extract_department(target_location)
+
+    if not departement:
+        print(f"⚠️ Impossible d'extraire le département de '{target_location}' - pas de filtrage")
+        return listings
+
+    print(f"📍 Filtrage par département: {departement}")
+
+    filtered = []
+    excluded = 0
+
+    for listing in listings:
+        localisation = listing.get('localisation', '')
+        listing_dept = extract_department(localisation)
+
+        # Si on ne peut pas extraire le département, on garde l'annonce (bénéfice du doute)
+        if not listing_dept:
+            filtered.append(listing)
+            continue
+
+        # Vérifier si le département correspond
+        if listing_dept == departement:
+            filtered.append(listing)
+        else:
+            excluded += 1
+            # Debug: afficher les exclusions
+            # print(f"  ❌ Exclu: {localisation} (dept {listing_dept} != {departement})")
+
+    if excluded > 0:
+        print(f"🚫 {excluded} annonces hors département {departement} exclues")
+
+    return filtered
