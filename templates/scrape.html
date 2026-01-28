@@ -65,6 +65,13 @@
                 </div>
             </div>
 
+            <!-- Carte interactive -->
+            <div class="form-group map-container">
+                <label>Zone de recherche</label>
+                <div id="map"></div>
+                <small class="form-hint" id="map-hint">La carte montre la zone de recherche</small>
+            </div>
+
             <div class="form-group">
                 <label>Sites à scraper</label>
                 <div class="sites-grid">
@@ -128,9 +135,29 @@
     </div>
 </div>
 
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
 <style>
 .scrape-page h2 {
     margin-bottom: 1.5rem;
+}
+
+/* Carte */
+.map-container {
+    margin-bottom: 1.5rem;
+}
+
+#map {
+    height: 280px;
+    border-radius: var(--radius);
+    border: 2px solid var(--gray-200);
+    z-index: 1;
+}
+
+#map-hint {
+    margin-top: 0.5rem;
+    display: block;
 }
 
 .status-panel {
@@ -382,7 +409,10 @@
 }
 </style>
 
-<!-- Script Géolocalisation -->
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<!-- Script Carte + Géolocalisation -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const geolocBtn = document.getElementById('geoloc-btn');
@@ -390,6 +420,98 @@ document.addEventListener('DOMContentLoaded', function() {
     const latInput = document.getElementById('lat');
     const lonInput = document.getElementById('lon');
     const locationHint = document.getElementById('location-hint');
+    const rayonInput = document.getElementById('rayon');
+    const mapHint = document.getElementById('map-hint');
+
+    // Initialiser la carte (Paris par défaut)
+    let map = L.map('map').setView([48.8566, 2.3522], 10);
+    let searchCircle = null;
+    let marker = null;
+
+    // Ajouter le fond de carte OpenStreetMap
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Fonction pour mettre à jour le cercle de recherche
+    function updateSearchCircle(lat, lon, rayonKm) {
+        // Supprimer l'ancien cercle et marker
+        if (searchCircle) map.removeLayer(searchCircle);
+        if (marker) map.removeLayer(marker);
+
+        // Créer le nouveau cercle
+        searchCircle = L.circle([lat, lon], {
+            color: '#4F46E5',
+            fillColor: '#4F46E5',
+            fillOpacity: 0.15,
+            radius: rayonKm * 1000, // Convertir km en mètres
+            weight: 2
+        }).addTo(map);
+
+        // Ajouter un marker au centre
+        marker = L.marker([lat, lon]).addTo(map);
+
+        // Ajuster la vue pour montrer le cercle entier
+        map.fitBounds(searchCircle.getBounds(), { padding: [20, 20] });
+
+        // Mettre à jour le hint
+        mapHint.innerHTML = `<span class="location-detected">📍 Zone: ${rayonKm}km autour de la position</span>`;
+    }
+
+    // Fonction pour géocoder une ville
+    function geocodeVille(ville) {
+        // Utiliser l'API geo.api.gouv.fr
+        const query = encodeURIComponent(ville);
+        fetch(`https://geo.api.gouv.fr/communes?nom=${query}&fields=nom,centre,codesPostaux&limit=1`)
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.length > 0 && data[0].centre) {
+                    const commune = data[0];
+                    const lat = commune.centre.coordinates[1];
+                    const lon = commune.centre.coordinates[0];
+                    const rayon = parseInt(rayonInput.value) || 10;
+                    updateSearchCircle(lat, lon, rayon);
+                } else {
+                    // Essayer avec le code postal
+                    fetch(`https://geo.api.gouv.fr/communes?codePostal=${query}&fields=nom,centre&limit=1`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data && data.length > 0 && data[0].centre) {
+                                const commune = data[0];
+                                const lat = commune.centre.coordinates[1];
+                                const lon = commune.centre.coordinates[0];
+                                const rayon = parseInt(rayonInput.value) || 10;
+                                updateSearchCircle(lat, lon, rayon);
+                            }
+                        })
+                        .catch(() => {});
+                }
+            })
+            .catch(() => {});
+    }
+
+    // Géocoder la ville initiale (Paris)
+    geocodeVille('Paris');
+
+    // Écouter les changements de ville (avec debounce)
+    let villeTimeout = null;
+    villeInput.addEventListener('input', function() {
+        clearTimeout(villeTimeout);
+        villeTimeout = setTimeout(() => {
+            if (villeInput.value.length >= 2) {
+                geocodeVille(villeInput.value);
+            }
+        }, 500);
+    });
+
+    // Écouter les changements de rayon
+    rayonInput.addEventListener('input', function() {
+        if (searchCircle) {
+            const rayon = parseInt(rayonInput.value) || 10;
+            const center = searchCircle.getLatLng();
+            updateSearchCircle(center.lat, center.lng, rayon);
+        }
+    });
 
     if (geolocBtn) {
         geolocBtn.addEventListener('click', function() {
@@ -412,6 +534,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Remplir les champs cachés
                     latInput.value = lat.toFixed(6);
                     lonInput.value = lon.toFixed(6);
+
+                    // Mettre à jour la carte immédiatement
+                    const rayon = parseInt(rayonInput.value) || 10;
+                    updateSearchCircle(lat, lon, rayon);
 
                     // Reverse geocoding pour obtenir le nom de la ville
                     fetch(`https://geo.api.gouv.fr/communes?lat=${lat}&lon=${lon}&fields=nom,codesPostaux&limit=1`)
