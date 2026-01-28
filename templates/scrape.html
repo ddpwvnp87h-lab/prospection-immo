@@ -45,10 +45,18 @@
     <div class="scrape-form-container">
         <form method="POST" action="{{ url_for('run_scrape') }}" class="scrape-form" id="scrape-form">
             <div class="form-row">
-                <div class="form-group">
+                <div class="form-group form-group-location">
                     <label for="ville">Ville ou Code Postal</label>
-                    <input type="text" id="ville" name="ville" value="Paris" required placeholder="Paris, 75001, Lyon, 69003...">
-                    <small class="form-hint">Entrez un nom de ville ou un code postal pour plus de précision</small>
+                    <div class="input-with-button">
+                        <input type="text" id="ville" name="ville" value="Paris" required placeholder="Paris, 75001, Lyon, 69003...">
+                        <button type="button" id="geoloc-btn" class="btn btn-secondary btn-geoloc" title="Utiliser ma position">
+                            📍
+                        </button>
+                    </div>
+                    <small class="form-hint" id="location-hint">Entrez une ville/code postal ou cliquez 📍 pour votre position</small>
+                    <!-- Champs cachés pour les coordonnées -->
+                    <input type="hidden" id="lat" name="lat" value="">
+                    <input type="hidden" id="lon" name="lon" value="">
                 </div>
 
                 <div class="form-group">
@@ -330,7 +338,153 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Géolocalisation */
+.input-with-button {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.input-with-button input {
+    flex: 1;
+}
+
+.btn-geoloc {
+    padding: 0.5rem 0.75rem;
+    font-size: 1.2rem;
+    min-width: 45px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-geoloc:hover {
+    transform: scale(1.05);
+}
+
+.btn-geoloc.loading {
+    animation: pulse 1s infinite;
+}
+
+.btn-geoloc.success {
+    background: var(--success);
+    color: white;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.location-detected {
+    color: var(--success);
+    font-weight: 500;
+}
 </style>
+
+<!-- Script Géolocalisation -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const geolocBtn = document.getElementById('geoloc-btn');
+    const villeInput = document.getElementById('ville');
+    const latInput = document.getElementById('lat');
+    const lonInput = document.getElementById('lon');
+    const locationHint = document.getElementById('location-hint');
+
+    if (geolocBtn) {
+        geolocBtn.addEventListener('click', function() {
+            if (!navigator.geolocation) {
+                alert('La géolocalisation n\'est pas supportée par votre navigateur');
+                return;
+            }
+
+            // Animation de chargement
+            geolocBtn.classList.add('loading');
+            geolocBtn.textContent = '⏳';
+            locationHint.textContent = 'Recherche de votre position...';
+
+            navigator.geolocation.getCurrentPosition(
+                // Succès
+                function(position) {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+
+                    // Remplir les champs cachés
+                    latInput.value = lat.toFixed(6);
+                    lonInput.value = lon.toFixed(6);
+
+                    // Reverse geocoding pour obtenir le nom de la ville
+                    fetch(`https://geo.api.gouv.fr/communes?lat=${lat}&lon=${lon}&fields=nom,codesPostaux&limit=1`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data && data.length > 0) {
+                                const commune = data[0];
+                                const cp = commune.codesPostaux ? commune.codesPostaux[0] : '';
+                                villeInput.value = cp || commune.nom;
+                                locationHint.innerHTML = `<span class="location-detected">📍 Position détectée: ${commune.nom} (${cp})</span>`;
+                            } else {
+                                villeInput.value = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                                locationHint.innerHTML = `<span class="location-detected">📍 Coordonnées: ${lat.toFixed(4)}, ${lon.toFixed(4)}</span>`;
+                            }
+
+                            geolocBtn.classList.remove('loading');
+                            geolocBtn.classList.add('success');
+                            geolocBtn.textContent = '✓';
+
+                            // Reset après 3 secondes
+                            setTimeout(() => {
+                                geolocBtn.classList.remove('success');
+                                geolocBtn.textContent = '📍';
+                            }, 3000);
+                        })
+                        .catch(err => {
+                            // Fallback: utiliser les coordonnées directement
+                            villeInput.value = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+                            locationHint.innerHTML = `<span class="location-detected">📍 Coordonnées: ${lat.toFixed(4)}, ${lon.toFixed(4)}</span>`;
+
+                            geolocBtn.classList.remove('loading');
+                            geolocBtn.classList.add('success');
+                            geolocBtn.textContent = '✓';
+                        });
+                },
+                // Erreur
+                function(error) {
+                    geolocBtn.classList.remove('loading');
+                    geolocBtn.textContent = '📍';
+
+                    let message = 'Erreur de géolocalisation';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            message = 'Accès à la position refusé. Activez la géolocalisation dans votre navigateur.';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            message = 'Position non disponible';
+                            break;
+                        case error.TIMEOUT:
+                            message = 'Délai dépassé';
+                            break;
+                    }
+                    locationHint.innerHTML = `<span style="color: var(--danger);">⚠️ ${message}</span>`;
+                },
+                // Options
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        });
+    }
+
+    // Clear les coordonnées si l'utilisateur tape manuellement
+    if (villeInput) {
+        villeInput.addEventListener('input', function() {
+            latInput.value = '';
+            lonInput.value = '';
+        });
+    }
+});
+</script>
 
 {% if scraping_status.running %}
 <script>

@@ -414,13 +414,18 @@ def delete_listing(listing_id):
 # SCRAPING
 # ============================================================================
 
-def run_scraping_task(user_id, ville, rayon, sites):
+def run_scraping_task(user_id, ville, rayon, sites, lat=None, lon=None):
     """Tâche de scraping exécutée en arrière-plan"""
     try:
+        # Si coordonnées GPS fournies, les afficher
+        location_msg = ville
+        if lat and lon:
+            location_msg = f"{ville} (GPS: {lat:.4f}, {lon:.4f})"
+
         update_scraping_status(user_id,
             running=True,
             progress=5,
-            message=f'Démarrage du scraping pour {ville}...',
+            message=f'Démarrage du scraping pour {location_msg}...',
             started_at=datetime.now().isoformat(),
             finished_at=None,
             results=None
@@ -428,6 +433,31 @@ def run_scraping_task(user_id, ville, rayon, sites):
 
         # Import des modules de scraping
         from utils.validator import validate_listing, deduplicate_by_url, deduplicate_by_signature, filter_agencies
+
+        # Si coordonnées GPS fournies, pré-remplir le cache de géolocalisation
+        geo_override = None
+        if lat and lon:
+            geo_override = {
+                'ville': ville,
+                'code_postal': None,
+                'departement': None,
+                'lat': lat,
+                'lon': lon,
+                'slug': ville.lower().replace(' ', '-'),
+                'search_terms': [ville]
+            }
+            # Essayer de récupérer le code postal via reverse geocoding
+            try:
+                import requests
+                resp = requests.get(f"https://geo.api.gouv.fr/communes?lat={lat}&lon={lon}&fields=nom,codesPostaux,codeDepartement&limit=1", timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data:
+                        geo_override['ville'] = data[0].get('nom', ville)
+                        geo_override['code_postal'] = data[0].get('codesPostaux', [None])[0]
+                        geo_override['departement'] = data[0].get('codeDepartement')
+            except:
+                pass
 
         all_listings = []
         total_sites = len(sites)
@@ -445,40 +475,37 @@ def run_scraping_task(user_id, ville, rayon, sites):
             )
 
             try:
+                scraper = None
+
                 if site_name == 'pap':
                     from scrapers.pap import PapScraper
                     scraper = PapScraper()
-                    listings = scraper.scrape(ville, rayon, max_pages=2)
-                    all_listings.extend(listings)
                 elif site_name == 'figaro':
                     from scrapers.figaro_immo import FigaroImmoScraper
                     scraper = FigaroImmoScraper()
-                    listings = scraper.scrape(ville, rayon, max_pages=2)
-                    all_listings.extend(listings)
                 elif site_name == 'leboncoin':
                     from scrapers.leboncoin import LeboncoinScraper
                     scraper = LeboncoinScraper()
-                    listings = scraper.scrape(ville, rayon, max_pages=2)
-                    all_listings.extend(listings)
                 elif site_name == 'facebook':
                     from scrapers.facebook_marketplace import FacebookMarketplaceScraper
                     scraper = FacebookMarketplaceScraper()
-                    listings = scraper.scrape(ville, rayon, max_pages=1)
-                    all_listings.extend(listings)
                 elif site_name == 'entreparticuliers':
                     from scrapers.entreparticuliers import EntreParticuliersScraper
                     scraper = EntreParticuliersScraper()
-                    listings = scraper.scrape(ville, rayon, max_pages=2)
-                    all_listings.extend(listings)
                 elif site_name == 'paruvendu':
                     from scrapers.paruvendu import ParuvenduScraper
                     scraper = ParuvenduScraper()
-                    listings = scraper.scrape(ville, rayon, max_pages=2)
-                    all_listings.extend(listings)
                 elif site_name == 'moteurimmo':
                     from scrapers.moteurimmo import MoteurImmoScraper
                     scraper = MoteurImmoScraper()
-                    listings = scraper.scrape(ville, rayon, max_pages=2)
+
+                if scraper:
+                    # Injecter les coordonnées GPS si disponibles
+                    if geo_override:
+                        scraper._geo_cache[ville] = geo_override
+
+                    max_pages = 1 if site_name == 'facebook' else 2
+                    listings = scraper.scrape(ville, rayon, max_pages=max_pages)
                     all_listings.extend(listings)
             except Exception as e:
                 print(f"Erreur scraping {site_name}: {e}")
@@ -561,13 +588,25 @@ def run_scrape():
     rayon = int(request.form.get('rayon', 10))
     sites = request.form.getlist('sites')
 
+    # Récupérer les coordonnées GPS (optionnel)
+    lat = request.form.get('lat')
+    lon = request.form.get('lon')
+
+    # Convertir en float si présent
+    try:
+        lat = float(lat) if lat else None
+        lon = float(lon) if lon else None
+    except (ValueError, TypeError):
+        lat = lon = None
+
     if not sites:
         sites = ['pap', 'figaro']  # Sites par défaut (sans Playwright)
 
     # Lancer le scraping en arrière-plan
     thread = threading.Thread(
         target=run_scraping_task,
-        args=(user_id, ville, rayon, sites)
+        args=(user_id, ville, rayon, sites),
+        kwargs={'lat': lat, 'lon': lon}
     )
     thread.daemon = True
     thread.start()
